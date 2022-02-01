@@ -4,6 +4,8 @@ project(CUDAExample CXX)
 find_package(CUDAToolkit)
 
 if(CUDAToolkit_FOUND)
+    option(CUDA_ENABLE_REALM "Build with Realm." OFF)
+
     file(GLOB_RECURSE SCHED_SOURCES schedulers/*.hpp)
     add_library(CUDASchedulers INTERFACE ${SCHED_SOURCES})
     target_link_libraries(CUDASchedulers INTERFACE P2300 CUDA::cudart)
@@ -12,6 +14,28 @@ if(CUDAToolkit_FOUND)
     foreach(arch IN LISTS CMAKE_CUDA_ARCHITECTURES)
         target_compile_options(CUDASchedulers INTERFACE --cuda-gpu-arch=sm_${arch})
     endforeach()
+
+    if (CUDA_ENABLE_REALM)
+        list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_LIST_DIR}/cmake")
+        include(CPM)
+
+        # Use CUDA
+        option(Legion_USE_CUDA "Force CUDA usage" ON)
+        option(Legion_HIJACK_CUDART "Force CUDA usage" OFF)
+
+        # Disable hidden symbols
+        option(REALM_LIMIT_SYMBOL_VISIBILITY "hide private symbols in realm" OFF)
+
+        # Use MPI
+        set(Legion_NETWORKS "mpi" CACHE STRING "Force MPI usage" FORCE)
+
+        set(CMAKE_POLICY_DEFAULT_CMP0077 NEW)
+        set(OLD_CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
+        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -stdlib=libc++")
+        CPMAddPackage("gh:StanfordLegion/legion#legion-21.12.0")
+        target_link_libraries(CUDASchedulers INTERFACE Realm)
+        set(CMAKE_CXX_FLAGS "${OLD_CMAKE_CXX_FLAGS}")
+    endif()
 
     # Tests
     file(GLOB_RECURSE TEST_SOURCES
