@@ -1560,7 +1560,7 @@ Possible extra rowspan handling
     blockquote c-[vi] { color: inherit; } /* Name.Variable.Instance */
     blockquote c-[il] { color: inherit; } /* Literal.Number.Integer.Long */
   </style>
-  <meta content="Bikeshed version 2e3c4c68b, updated Fri Jan 14 14:49:00 2022 -0800" name="generator">
+  <meta content="Bikeshed version fb1e763a4, updated Tue Mar 1 13:13:50 2022 -0800" name="generator">
   <link href="https://wg21.link/P2300" rel="canonical">
   <link href="https://isocpp.org/favicon.ico" rel="icon">
 <style>
@@ -2194,7 +2194,7 @@ c-[il] { color: #000000 } /* Literal.Number.Integer.Long */
   <div class="head">
    <p data-fill-with="logo"></p>
    <h1 class="p-name no-ref" id="title">D2300R5<br><code class="highlight"><c- n>std</c-><c- o>::</c-><c- n>execution</c-></code></h1>
-   <h2 class="no-num no-toc no-ref heading settled" id="profile-and-date"><span class="content">Draft Proposal, <time class="dt-updated" datetime="2022-02-27">2022-02-27</time></span></h2>
+   <h2 class="no-num no-toc no-ref heading settled" id="profile-and-date"><span class="content">Draft Proposal, <time class="dt-updated" datetime="2022-03-14">2022-03-14</time></span></h2>
    <div data-fill-with="spec-metadata">
     <dl>
      <dt class="editor">Authors:
@@ -5854,16 +5854,19 @@ If <code class="highlight"><c- n>callback_</c-></code> is executing on the curre
   <c- k>namespace</c-> <i><c- nn>senders</c-><c- o>-</c-><c- nn>queries</c-></i> <c- p>{</c-> <c- c1>// exposition only</c->
     <c- k>struct</c-> <c- nc>forwarding_sender_query_t</c-><c- p>;</c->
 
-    <c- k>template</c-> <c- o>&lt;</c-><c- k>class</c-> <c- nc>T</c-><c- o>></c->
-      <c- k>concept</c-> <i><c- nc>forwarding</c-><c- o>-</c-><c- n>sender</c-><c- o>-</c-><c- n>query</c-></i> <c- o>=</c-> <c- c1>// exposition only</c->
-        <c- n>forwarding_sender_query</c-><c- p>(</c-><c- n>T</c-><c- p>{});</c->
-
     <c- k>template</c-> <c- o>&lt;</c-><c- k>class</c-> <c- nc>CPO</c-><c- o>></c->
     <c- k>struct</c-> <c- nc>get_completion_scheduler_t</c-><c- p>;</c->
   <c- p>}</c->
   <c- k>using</c-> <i><c- n>senders</c-><c- o>-</c-><c- n>queries</c-></i><c- o>::</c-><c- n>forwarding_sender_query_t</c-><c- p>;</c->
   <c- k>using</c-> <i><c- n>senders</c-><c- o>-</c-><c- n>queries</c-></i><c- o>::</c-><c- n>get_completion_scheduler_t</c-><c- p>;</c->
   <c- kr>inline</c-> <c- k>constexpr</c-> <c- n>forwarding_sender_query_t</c-> <c- n>forwarding_sender_query</c-><c- p>{};</c->
+
+  <c- k>namespace</c-> <i><c- nn>senders</c-><c- o>-</c-><c- nn>queries</c-></i> <c- p>{</c-> <c- c1>// exposition only</c->
+    <c- k>template</c-> <c- o>&lt;</c-><c- k>class</c-> <c- nc>T</c-><c- o>></c->
+      <c- k>concept</c-> <i><c- nc>forwarding</c-><c- o>-</c-><c- n>sender</c-><c- o>-</c-><c- n>query</c-></i> <c- o>=</c-> <c- c1>// exposition only</c->
+        <c- n>forwarding_sender_query</c-><c- p>(</c-><c- n>T</c-><c- p>{});</c->
+  <c- p>}</c->
+
   <c- k>template</c-> <c- o>&lt;</c-><c- k>class</c-> <c- nc>CPO</c-><c- o>></c->
   <c- kr>inline</c-> <c- k>constexpr</c-> <c- n>get_completion_scheduler_t</c-><c- o>&lt;</c-><c- n>CPO</c-><c- o>></c-> <c- n>get_completion_scheduler</c-><c- p>{};</c->
 
@@ -6781,6 +6784,8 @@ argument <code class="highlight"><c- n>CPO</c-></code> in <code class="highlight
      </ol>
     <li data-md>
      <p>If, for some sender <code class="highlight"><c- n>s</c-></code> and customization point object <code class="highlight"><c- n>CPO</c-></code>, <code class="highlight"><c- n>execution</c-><c- o>::</c-><c- n>get_completion_scheduler</c-><c- o>&lt;</c-><c- k>decltype</c-><c- p>(</c-><c- n>CPO</c-><c- p>)</c-><c- o>></c-><c- p>(</c-><c- n>s</c-><c- p>)</c-></code> is well-formed and results in a scheduler <code class="highlight"><c- n>sch</c-></code>, and the sender <code class="highlight"><c- n>s</c-></code> invokes <code class="highlight"><c- n>CPO</c-><c- p>(</c-><c- n>r</c-><c- p>,</c-> <c- n>args</c-><c- p>...)</c-></code>, for some receiver <code class="highlight"><c- n>r</c-></code> which has been connected to <code class="highlight"><c- n>s</c-></code>, with additional arguments <code class="highlight"><c- n>args</c-><c- p>...</c-></code>, on an execution agent which does not belong to the associated execution context of <code class="highlight"><c- n>sch</c-></code>, the behavior is undefined.</p>
+    <li data-md>
+     <p>The expression <code class="highlight"><c- n>execution</c-><c- o>::</c-><c- n>forwarding_sender_query</c-><c- p>(</c-><c- n>get_completion_scheduler</c-><c- o>&lt;</c-><c- n>CPO</c-><c- o>></c-><c- p>)</c-></code> shall be a prvalue core constant expression of type <code class="highlight"><c- b>bool</c-></code> with value <code class="highlight">true</code>. It shall not be potentially-throwing. <code class="highlight"><c- n>CPO</c-></code> shall be one of <code class="highlight"><c- n>set_value_t</c-></code>, <code class="highlight"><c- n>set_error_t</c-></code> or <code class="highlight"><c- n>set_stopped_t</c-></code>.</p>
    </ol>
    <h4 class="heading settled" data-level="10.8.4" id="spec-execution.senders.factories"><span class="secno">10.8.4. </span><span class="content">Sender factories <b>[exec.factories]</b></span><a class="self-link" href="#spec-execution.senders.factories"></a></h4>
    <h5 class="heading settled" data-level="10.8.4.1" id="spec-execution.senders.factories.general"><span class="secno">10.8.4.1. </span><span class="content">General <b>[exec.factories.general]</b></span><a class="self-link" href="#spec-execution.senders.factories.general"></a></h5>
