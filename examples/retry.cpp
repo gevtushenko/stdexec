@@ -19,6 +19,8 @@ int main() { return 0; }
 
 // Pull in the reference implementation of P2300:
 #include <execution.hpp>
+#include "schedulers/static_thread_pool.hpp"
+#include "schedulers/inline_scheduler.hpp"
 #include "./algorithms/retry.hpp"
 
 #include <cstdio>
@@ -52,12 +54,30 @@ struct fail_some {
 };
 
 int main() {
-  auto x = retry(fail_some{});
+  example::static_thread_pool pool{2};
+  stdex::scheduler auto sch = pool.get_scheduler();
+
+  std::atomic counter{0};
+
+  stdex::sender auto s = stdex::schedule(sch) 
+                       | stdex::then([&] {
+                           if (counter++ == 0) 
+                           { 
+                             std::printf("fail!\n");
+                             throw 0; 
+                           } else { 
+                             std::printf("success!\n");
+                             return 42;  
+                           }});
+
+  // auto x = retry(fail_some{});
+  auto y = retry(std::move(s));
+
   // prints:
   //   fail!
   //   fail!
   //   success!
-  auto [a] = std::this_thread::sync_wait(std::move(x)).value();
+  auto [a] = std::this_thread::sync_wait(std::move(y)).value();
   (void) a;
 }
 

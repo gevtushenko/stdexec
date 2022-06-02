@@ -42,19 +42,22 @@ struct _conv {
   }
 };
 
-template<class S, class R>
+template<class _SenderId, class _ReceiverId>
 struct _op;
 
 // pass through all customizations except set_error, which retries the operation.
-template<class S, class R>
+template<class _SenderId, class _ReceiverId>
 struct _retry_receiver
-  : stdex::receiver_adaptor<_retry_receiver<S, R>> {
-  _op<S, R>* o_;
+  : stdex::receiver_adaptor<_retry_receiver<_SenderId, _ReceiverId>> {
+
+  using R = std::__t<_ReceiverId>;
+
+  _op<_SenderId, _ReceiverId>* o_;
 
   R&& base() && noexcept { return (R&&) o_->r_; }
   const R& base() const & noexcept { return o_->r_; }
 
-  explicit _retry_receiver(_op<S, R>* o) : o_(o) {}
+  explicit _retry_receiver(_op<_SenderId, _ReceiverId>* o) : o_(o) {}
 
   void set_error(auto&&) && noexcept {
     o_->_retry(); // This causes the op to be retried
@@ -63,19 +66,22 @@ struct _retry_receiver
 
 // Hold the nested operation state in an optional so we can
 // re-construct and re-start it if the operation fails.
-template<class S, class R>
+template<class _SenderId, class _ReceiverId>
 struct _op {
+  using S = std::__t<_SenderId>;
+  using R = std::__t<_ReceiverId>;
+
   S s_;
   R r_;
   std::optional<
-      stdex::connect_result_t<S&, _retry_receiver<S, R>>> o_;
+      stdex::connect_result_t<S, _retry_receiver<_SenderId, _ReceiverId>>> o_;
 
   _op(S s, R r): s_((S&&)s), r_((R&&)r), o_{_connect()} {}
   _op(_op&&) = delete;
 
   auto _connect() noexcept {
     return _conv{[this] {
-      return stdex::connect(s_, _retry_receiver<S, R>{this});
+      return stdex::connect(std::move(s_), _retry_receiver<_SenderId, _ReceiverId>{this});
     }};
   }
   void _retry() noexcept try {
@@ -89,8 +95,10 @@ struct _op {
   }
 };
 
-template<class S>
+template<class _SenderId>
 struct _retry_sender {
+  using S = std::__t<_SenderId>;
+
   S s_;
   explicit _retry_sender(S s) : s_((S&&) s) {}
 
@@ -102,17 +110,17 @@ struct _retry_sender {
   template <class Env>
   friend auto tag_invoke(stdex::get_completion_signatures_t, const _retry_sender&, Env)
     -> stdex::make_completion_signatures<
-        S&, Env,
+        S, Env,
         stdex::completion_signatures<stdex::set_error_t(std::exception_ptr)>,
         _value, _error>;
 
   template<stdex::receiver R>
-  friend _op<S, R> tag_invoke(stdex::connect_t, _retry_sender&& self, R r) {
+  friend _op<_SenderId, std::__x<std::remove_cvref_t<R>>> tag_invoke(stdex::connect_t, _retry_sender&& self, R r) {
     return {(S&&) self.s_, (R&&) r};
   }
 };
 
 template<stdex::sender S>
 stdex::sender auto retry(S s) {
-  return _retry_sender{(S&&) s};
+  return _retry_sender<std::__x<std::remove_cvref_t<S>>>{(S&&) s};
 }
