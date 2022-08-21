@@ -13,6 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+#include "functional.hpp"
 #if defined(__GNUC__) && !defined(__clang__)
 int main() { return 0; }
 #else
@@ -24,9 +25,28 @@ int main() { return 0; }
 
 #include <cstdio>
 #include <iostream>
+#include <thread>
+#include <vector>
+#include <barrier>
 
 namespace ex = std::execution;
 namespace stdex = ex;
+
+thread_local int tid{};
+constexpr int n_threads = 1;
+std::barrier barrier{n_threads};
+
+template <class Fn>
+std::thread fork(int tid_, Fn fn) {
+  return std::thread([fn, tid_] {
+    tid = tid_;
+    fn();
+  });
+}
+
+bool is_main_thread() {
+  return tid == 0;
+}
 
 template <class T>
 void print(T && ) {
@@ -71,6 +91,17 @@ namespace {
 
     inline constexpr is_cooperative_t is_cooperative{};
 
+    struct get_cooperative_op_state_t {
+      template <ex::operation_state T>
+        requires std::tag_invocable<get_cooperative_op_state_t, T&>
+      auto operator()(T& o) const
+        -> std::tag_invoke_result_t<get_cooperative_op_state_t, T&> {
+        return tag_invoke(get_cooperative_op_state_t{}, o);
+      }
+    };
+
+    inline constexpr get_cooperative_op_state_t get_cooperative_op_state{};
+
     struct is_fake_env_t {
       template <class T>
         requires std::tag_invocable<is_fake_env_t, const T&>
@@ -113,34 +144,6 @@ namespace {
       }
     };
 
-    template<class RID>
-    struct fake_receiver : stdex::receiver_adaptor<fake_receiver<RID>> {
-      using R = std::__t<RID>;
-
-      R recv_;
-
-      R&& base() && noexcept { return (R&&) recv_; }
-      const R& base() const & noexcept { return recv_; }
-
-      void set_value() && noexcept {
-        std::printf("fake_receiver::set_value\n");
-        ex::set_value(std::move(recv_));
-      }
-
-      auto get_env() const {
-        return ex::make_env(
-            ex::get_env(recv_), 
-            ex::with(is_cooperative, std::true_type{}),
-            ex::with(is_fake_env, std::true_type{}));
-      }
-
-      friend auto tag_invoke(is_cooperative_t, const fake_receiver&) {
-        return std::true_type{};
-      }
-
-      explicit fake_receiver(R recv) : recv_(recv) {}
-    };
-
     namespace wrapper 
     {
       // pass through all customizations except set_error, which retries the operation.
@@ -169,6 +172,38 @@ namespace {
         explicit receiver(R recv) : recv_(recv) {}
       };
 
+      template<class OID>
+      struct op_state {
+        using O = std::__t<OID>;
+
+        O op_state_;
+
+        friend void tag_invoke(ex::start_t, op_state& self) noexcept {
+          if constexpr (std::tag_invocable<get_cooperative_op_state_t, O&>) {
+            if (is_main_thread()) {
+              ex::start(self.op_state_);
+            } else {
+              ex::start(get_cooperative_op_state(self.op_state_));
+            }
+          }
+          std::printf("wrapper::op_state::start\n");
+        }
+
+        friend auto tag_invoke(is_cooperative_t, const op_state&) {
+          return std::false_type{};
+        }
+
+        friend auto tag_invoke(get_cooperative_op_state_t, op_state& self)
+          -> std::tag_invoke_result_t<get_cooperative_op_state_t, O&>
+        {
+          return get_cooperative_op_state(self.op_state_);
+        }
+
+      };
+
+      template <class S, class R>
+      using op_state_t = op_state<std::__x<ex::connect_result_t<S, receiver<std::__x<R>>>>>;
+
       template<class SID>
       struct sender {
         using S = std::__t<SID>;
@@ -190,9 +225,10 @@ namespace {
 
         template<std::__decays_to<sender> Self, ex::receiver R>
         friend auto tag_invoke(ex::connect_t, Self && self, R&& r)
-          -> ex::connect_result_t<std::__member_t<Self, S>, receiver<std::__x<R>>> {
-          // Can't connect this because it provokes recursion.
-          return ex::connect(std::forward<Self>(self).s_, receiver<std::__x<R>>{r});
+          -> op_state_t<std::__member_t<Self, S>, R> {
+          return op_state_t<std::__member_t<Self, S>, R>{
+              ex::connect(std::forward<Self>(self).s_, receiver<std::__x<R>>{r})
+          };
         }
 
         friend auto tag_invoke(is_cooperative_t, const sender&) {
@@ -222,11 +258,34 @@ namespace {
         }
 
         friend auto tag_invoke(is_cooperative_t, const receiver&) {
-          return std::true_type{};
+          return std::false_type{};
         }
 
         explicit receiver(R recv) : recv_(recv) {}
       };
+
+      template<class OID>
+      struct op_state {
+        using O = std::__t<OID>;
+
+        O op_state_;
+
+        friend void tag_invoke(ex::start_t, op_state& self) noexcept {
+          ex::start(self.op_state_);
+          std::printf("unscoped_schedule_from::op_state::start\n");
+        }
+
+        friend auto tag_invoke(is_cooperative_t, const op_state&) {
+          return std::false_type{};
+        }
+
+        friend O& tag_invoke(get_cooperative_op_state_t, op_state& self) {
+          return self.op_state_;
+        }
+      };
+
+      template <class S, class R>
+      using op_state_t = op_state<std::__x<ex::connect_result_t<S, receiver<std::__x<R>>>>>;
 
       template<class SID>
       struct sender {
@@ -248,9 +307,11 @@ namespace {
           -> ex::sender_descriptor_t<ex::unscoped_schedule_from_t(S)>;
 
         template<std::__decays_to<sender> Self, ex::receiver R>
-        friend auto tag_invoke(ex::connect_t, Self&& self, R&& r)
-          -> ex::connect_result_t<std::__member_t<Self, S>, receiver<std::__x<R>>> {
-          return ex::connect(std::forward<Self>(self).s_, receiver<std::__x<R>>{std::forward<R>(r)});
+        friend auto tag_invoke(ex::connect_t, Self && self, R&& r)
+          -> op_state_t<std::__member_t<Self, S>, R> {
+          return op_state_t<std::__member_t<Self, S>, R>{
+              ex::connect(std::forward<Self>(self).s_, receiver<std::__x<R>>{r})
+          };
         }
 
         friend auto tag_invoke(is_cooperative_t, const sender&) {
@@ -286,6 +347,42 @@ namespace {
         explicit receiver(R recv) : recv_(recv) {}
       };
 
+      template<class OID>
+      struct op_state {
+        using O = std::__t<OID>;
+
+        O op_state_;
+
+        friend void tag_invoke(ex::start_t, op_state& self) noexcept
+        {
+          std::printf("unscoped_transfer::op_state::start\n");
+          print(self.op_state_);
+
+          if constexpr (std::tag_invocable<get_cooperative_op_state_t, O&>)
+          {
+            std::printf("unscoped_transfer::op_state::start::coop\n");
+            if (is_main_thread()) {
+              std::printf("unscoped_transfer::op_state::start::main\n");
+              ex::start(self.op_state_);
+            } else {
+              ex::start(get_cooperative_op_state(self.op_state_));
+            }
+          }
+        }
+
+        friend auto tag_invoke(is_cooperative_t, const op_state&) {
+          return std::true_type{};
+        }
+
+        friend O& tag_invoke(get_cooperative_op_state_t, op_state& self) {
+          return get_cooperative_op_state(self.op_state_);
+        }
+      };
+
+      template <class S, class R>
+      using op_state_t = op_state<std::__x<ex::connect_result_t<S, receiver<std::__x<R>>>>>;
+
+
       template<class SID, class SchedID>
       struct sender {
         using S = std::__t<SID>;
@@ -308,11 +405,11 @@ namespace {
           -> ex::sender_descriptor_t<ex::unscoped_transfer_t(S)>;
 
         template<std::__decays_to<sender> Self, ex::receiver R>
-        friend auto tag_invoke(stdex::connect_t, Self&& self, R&& r) 
-          -> ex::connect_result_t<std::__member_t<Self, S>, receiver<std::__x<R>>> {
-          return ex::connect(
-              std::forward<Self>(self).s_,
-              receiver<std::__x<R>>{r});
+        friend auto tag_invoke(ex::connect_t, Self && self, R&& r)
+          -> op_state_t<std::__member_t<Self, S>, R> {
+          return op_state_t<std::__member_t<Self, S>, R>{
+              ex::connect(std::forward<Self>(self).s_, receiver<std::__x<R>>{r})
+          };
         }
 
         friend auto tag_invoke(is_cooperative_t, const sender&) {
@@ -382,37 +479,6 @@ namespace {
       E&& env) {
       return wrapper::sender<std::__x<S>>{then};
     }
-
-    /*
-    template <coop S, fake_env E>
-    ex::sender auto tag_invoke(
-      ex::connect_transform_t,
-      coop::domain,
-      ex::then_t,
-      S&& then,
-      E&& env) {
-
-      auto&& [sndr, fn] = then;
-
-      std::printf("wrap fake it:\n\t");
-      fn();
-
-      // using sndr_t = decltype(sndr);
-      return wrapper::sender<std::__x<S>>{then};
-    }
-    */
-
-    /*
-    template <non_coop S, class T, coop E>
-    ex::sender auto tag_invoke(
-      ex::connect_transform_t,
-      coop::domain,
-      T,
-      S&& s,
-      E&& env) {
-      return ex::just();
-    }
-    */
   } // namespace custom
 } // anonymous namespace
 
@@ -432,10 +498,10 @@ struct inline_scheduler {
   struct Domain {};
 
   template <typename R>
-  struct oper {
+  struct op_state{
     R recv_;
-    friend void tag_invoke(ex::start_t, oper& self) noexcept {
-      std::printf("inline_scheduler::oper::start\n");
+    friend void tag_invoke(ex::start_t, op_state& self) noexcept {
+      std::printf("inline_scheduler::op_state::start\n");
       ex::set_value((R &&) self.recv_);
     }
   };
@@ -445,7 +511,7 @@ struct inline_scheduler {
     using descriptor_t = ex::sender_descriptor_t<ex::schedule_t()>;
 
     template <typename R>
-    friend oper<R> tag_invoke(ex::connect_t, my_sender self, R&& r) {
+    friend op_state<R> tag_invoke(ex::connect_t, my_sender self, R&& r) {
       return {(R &&) r};
     }
 
@@ -465,11 +531,22 @@ struct inline_scheduler {
 };
 
 int main() {
-  auto snd = ex::on(inline_scheduler{}, ex::just() | ex::then(print(1)))
-           | ex::on(coop::inline_scheduler{}, ex::then(print(2)))
-           | ex::on(inline_scheduler{}, ex::then(print(3)));
+  std::vector<std::thread> threads(n_threads);
 
-  std::this_thread::sync_wait(std::move(snd));
+  for (int tid_ = 0; tid_ < n_threads; tid_++) {
+    threads[tid_] = fork(tid_, [] {
+      auto snd = // ex::on(inline_scheduler{}, ex::just() | ex::then(print(1)))
+                 ex::just()
+               | ex::on(coop::inline_scheduler{}, ex::then(print(2)));
+               // | ex::on(inline_scheduler{}, ex::then(print(3)));
+
+      std::this_thread::sync_wait(std::move(snd));
+    });
+  }
+
+  for (auto& thread : threads) {
+    thread.join();
+  }
 }
 
 #endif
