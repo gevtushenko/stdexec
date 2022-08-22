@@ -14,6 +14,7 @@
  * limitations under the License.
  */
 #include "functional.hpp"
+#include <type_traits>
 #if defined(__GNUC__) && !defined(__clang__)
 int main() { return 0; }
 #else
@@ -33,7 +34,7 @@ namespace ex = std::execution;
 namespace stdex = ex;
 
 thread_local int tid{};
-constexpr int n_threads = 1;
+constexpr int n_threads = 2;
 std::barrier barrier{n_threads};
 
 template <class Fn>
@@ -146,43 +147,35 @@ namespace {
 
     namespace wrapper 
     {
-      // pass through all customizations except set_error, which retries the operation.
-      template<class RID>
-      struct receiver : stdex::receiver_adaptor<receiver<RID>> {
-        using R = std::__t<RID>;
-
-        R recv_;
-
-        R&& base() && noexcept { return (R&&) recv_; }
-        const R& base() const & noexcept { return recv_; }
-
-        void set_value() && noexcept {
-          std::printf("wrapper::receiver::set_value\n");
-          ex::set_value(std::move(recv_));
-        }
-
-        auto get_env() const {
-          return ex::make_env(ex::get_env(base()), ex::with(is_cooperative, std::false_type{}));
-        }
+      template <class EnvT>
+      struct receiver {
+        EnvT env_;
 
         friend auto tag_invoke(is_cooperative_t, const receiver&) {
           return std::false_type{};
         }
 
-        explicit receiver(R recv) : recv_(recv) {}
+        template <std::__one_of<ex::set_value_t, ex::set_error_t, ex::set_stopped_t> _Tag, class... _Args>
+        friend void tag_invoke(_Tag, const receiver& __self, _Args&&... __args) noexcept {
+        }
+
+        friend auto tag_invoke(ex::get_env_t, const receiver& __self) {
+          return ex::make_env(__self.env_, ex::with(is_cooperative, std::false_type{}));
+        }
       };
 
-      template<class OID>
+      template<class OID, class RID>
       struct op_state {
         using O = std::__t<OID>;
+        using R = std::__t<RID>;
 
         O op_state_;
+        R r_;
 
         friend void tag_invoke(ex::start_t, op_state& self) noexcept {
-          std::printf("wrapper::op_state::start\n");
-
           if (is_main_thread()) {
             ex::start(self.op_state_);
+            ex::set_value(std::move(self.r_));
           } else {
             ex::start(get_cooperative_op_state(self.op_state_));
           }
@@ -197,11 +190,19 @@ namespace {
         {
           return get_cooperative_op_state(self.op_state_);
         }
-
       };
 
       template <class S, class R>
-      using op_state_t = op_state<std::__x<ex::connect_result_t<S, receiver<std::__x<R>>>>>;
+      using op_state_t =
+          op_state<
+            std::__x<
+              ex::connect_result_t<
+                S, 
+                receiver<ex::env_of_t<R>>
+              >
+            >, 
+            std::__x<R> 
+          >;
 
       template<class SID>
       struct sender {
@@ -225,8 +226,10 @@ namespace {
         template<std::__decays_to<sender> Self, ex::receiver R>
         friend auto tag_invoke(ex::connect_t, Self && self, R&& r)
           -> op_state_t<std::__member_t<Self, S>, R> {
+          ex::env_of_t<R> env = ex::get_env(r);
           return op_state_t<std::__member_t<Self, S>, R>{
-              ex::connect(std::forward<Self>(self).s_, receiver<std::__x<R>>{r})
+              ex::connect(std::forward<Self>(self).s_, receiver<ex::env_of_t<R>>{env}),
+              std::forward<R>(r)
           };
         }
 
@@ -238,53 +241,61 @@ namespace {
 
     namespace unscoped_schedule_from 
     {
-      template<class RID>
-      struct receiver : stdex::receiver_adaptor<receiver<RID>> {
-        using R = std::__t<RID>;
-
-        R recv_;
-
-        R&& base() && noexcept { return (R&&) recv_; }
-        const R& base() const & noexcept { return recv_; }
-
-        void set_value() && noexcept {
-          std::printf("unscoped_schedule_from::receiver::set_value\n");
-          ex::set_value(std::move(recv_));
-        }
-
-        auto get_env() const {
-          return ex::make_env(ex::get_env(recv_), ex::with(is_cooperative, std::false_type{}));
-        }
+      template <class EnvT>
+      struct receiver {
+        EnvT env_;
 
         friend auto tag_invoke(is_cooperative_t, const receiver&) {
           return std::false_type{};
         }
 
-        explicit receiver(R recv) : recv_(recv) {}
+        template <std::__one_of<ex::set_value_t, ex::set_error_t, ex::set_stopped_t> _Tag, class... _Args>
+        friend void tag_invoke(_Tag, const receiver& __self, _Args&&... __args) noexcept {
+        }
+
+        friend auto tag_invoke(ex::get_env_t, const receiver& __self) {
+          return ex::make_env(__self.env_, ex::with(is_cooperative, std::false_type{}));
+        }
       };
 
-      template<class OID>
+      template<class OID, class RID>
       struct op_state {
         using O = std::__t<OID>;
+        using R = std::__t<RID>;
 
         O op_state_;
+        R r_;
 
         friend void tag_invoke(ex::start_t, op_state& self) noexcept {
           ex::start(self.op_state_);
-          std::printf("unscoped_schedule_from::op_state::start\n");
+          barrier.arrive_and_wait();
+
+          if (is_main_thread()) {
+            ex::set_value(std::move(self.r_));
+          }
         }
 
         friend auto tag_invoke(is_cooperative_t, const op_state&) {
           return std::false_type{};
         }
 
-        friend O& tag_invoke(get_cooperative_op_state_t, op_state& self) {
-          return self.op_state_;
+        friend op_state& tag_invoke(get_cooperative_op_state_t, op_state& self)
+        {
+          return self;
         }
       };
 
       template <class S, class R>
-      using op_state_t = op_state<std::__x<ex::connect_result_t<S, receiver<std::__x<R>>>>>;
+      using op_state_t =
+          op_state<
+            std::__x<
+              ex::connect_result_t<
+                S, 
+                receiver<ex::env_of_t<R>>
+              >
+            >, 
+            std::__x<R> 
+          >;
 
       template<class SID>
       struct sender {
@@ -308,8 +319,10 @@ namespace {
         template<std::__decays_to<sender> Self, ex::receiver R>
         friend auto tag_invoke(ex::connect_t, Self && self, R&& r)
           -> op_state_t<std::__member_t<Self, S>, R> {
+          ex::env_of_t<R> env = ex::get_env(r);
           return op_state_t<std::__member_t<Self, S>, R>{
-              ex::connect(std::forward<Self>(self).s_, receiver<std::__x<R>>{r})
+              ex::connect(std::forward<Self>(self).s_, receiver<ex::env_of_t<R>>{env}),
+              std::forward<R>(r)
           };
         }
 
@@ -321,60 +334,63 @@ namespace {
 
     namespace unscoped_transfer
     {
-      template<class RID>
-      struct receiver : stdex::receiver_adaptor<receiver<RID>> {
-        using R = std::__t<RID>;
-
-        R recv_;
-
-        R&& base() && noexcept { return (R&&) recv_; }
-        const R& base() const & noexcept { return recv_; }
-
-        void set_value() && noexcept {
-          std::printf("unscoped_transfer::receiver::set_value\n");
-          ex::set_value(std::move(recv_));
-        }
-
-        auto get_env() const {
-          return ex::make_env(ex::get_env(recv_), ex::with(is_cooperative, std::true_type{}));
-        }
+      template <class EnvT>
+      struct receiver {
+        EnvT env_;
 
         friend auto tag_invoke(is_cooperative_t, const receiver&) {
-          return std::true_type{};
+          return std::false_type{};
         }
 
-        explicit receiver(R recv) : recv_(recv) {}
+        template <std::__one_of<ex::set_value_t, ex::set_error_t, ex::set_stopped_t> _Tag, class... _Args>
+        friend void tag_invoke(_Tag, const receiver& __self, _Args&&... __args) noexcept {
+        }
+
+        friend auto tag_invoke(ex::get_env_t, const receiver& __self) {
+          return ex::make_env(__self.env_, ex::with(is_cooperative, std::true_type{}));
+        }
       };
 
-      template<class OID>
+      template<class OID, class RID>
       struct op_state {
         using O = std::__t<OID>;
+        using R = std::__t<RID>;
 
         O op_state_;
+        R r_;
 
-        friend void tag_invoke(ex::start_t, op_state& self) noexcept
-        {
-          std::printf("unscoped_transfer::op_state::start\n");
-
+        friend void tag_invoke(ex::start_t, op_state& self) noexcept {
           if (is_main_thread()) {
             ex::start(self.op_state_);
           } else {
             ex::start(get_cooperative_op_state(self.op_state_));
           }
+
+          barrier.arrive_and_wait();
+          ex::set_value(std::move(self.r_));
         }
 
         friend auto tag_invoke(is_cooperative_t, const op_state&) {
-          return std::true_type{};
+          return std::false_type{};
         }
 
-        friend O& tag_invoke(get_cooperative_op_state_t, op_state& self) {
-          return get_cooperative_op_state(self.op_state_);
+        friend O& tag_invoke(get_cooperative_op_state_t, op_state& self)
+        {
+          return self.op_state_;
         }
       };
 
       template <class S, class R>
-      using op_state_t = op_state<std::__x<ex::connect_result_t<S, receiver<std::__x<R>>>>>;
-
+      using op_state_t =
+          op_state<
+            std::__x<
+              ex::connect_result_t<
+                S, 
+                receiver<ex::env_of_t<R>>
+              >
+            >, 
+            std::__x<R> 
+          >;
 
       template<class SID, class SchedID>
       struct sender {
@@ -400,8 +416,10 @@ namespace {
         template<std::__decays_to<sender> Self, ex::receiver R>
         friend auto tag_invoke(ex::connect_t, Self && self, R&& r)
           -> op_state_t<std::__member_t<Self, S>, R> {
+          ex::env_of_t<R> env = ex::get_env(r);
           return op_state_t<std::__member_t<Self, S>, R>{
-              ex::connect(std::forward<Self>(self).s_, receiver<std::__x<R>>{r})
+              ex::connect(std::forward<Self>(self).s_, receiver<ex::env_of_t<R>>{env}),
+              std::forward<R>(r)
           };
         }
 
@@ -479,7 +497,7 @@ struct print_t {
   int val_{};
 
   void operator()() {
-    std::printf("then(%d)\n", val_);
+    std::printf("then(%d) in thread %d\n", val_, tid);
   }
 };
 
@@ -494,7 +512,6 @@ struct inline_scheduler {
   struct op_state{
     R recv_;
     friend void tag_invoke(ex::start_t, op_state& self) noexcept {
-      std::printf("inline_scheduler::op_state::start\n");
       ex::set_value((R &&) self.recv_);
     }
   };
@@ -528,10 +545,9 @@ int main() {
 
   for (int tid_ = 0; tid_ < n_threads; tid_++) {
     threads[tid_] = fork(tid_, [] {
-      auto snd = // ex::on(inline_scheduler{}, ex::just() | ex::then(print(1)))
-                 ex::just()
-               | ex::on(coop::inline_scheduler{}, ex::then(print(2)));
-               // | ex::on(inline_scheduler{}, ex::then(print(3)));
+      auto snd = ex::on(inline_scheduler{}, ex::just() | ex::then(print(1)))
+               | ex::on(coop::inline_scheduler{}, ex::then(print(2)))
+               | ex::on(inline_scheduler{}, ex::then(print(3)));
 
       std::this_thread::sync_wait(std::move(snd));
     });
