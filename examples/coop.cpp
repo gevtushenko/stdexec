@@ -86,22 +86,6 @@ namespace {
 
     inline constexpr get_cooperative_op_state_t get_cooperative_op_state{};
 
-    struct is_fake_env_t {
-      template <class T>
-        requires std::tag_invocable<is_fake_env_t, const T&>
-      auto operator()(const T& o) const
-        -> std::tag_invoke_result_t<is_fake_env_t, const T&> {
-        return tag_invoke(is_fake_env_t{}, o);
-      }
-
-      template <class T>
-      auto operator()(const T&) const noexcept {
-        return std::false_type{};
-      }
-    };
-
-    inline constexpr is_fake_env_t is_fake_env{};
-
     template <class T>
     concept coop = T::is_cooperative == true;
 
@@ -200,6 +184,7 @@ namespace {
 
         template <std::__one_of<ex::set_value_t, ex::set_error_t, ex::set_stopped_t> _Tag, class... _Args>
         friend void tag_invoke(_Tag, const receiver& __self, _Args&&... __args) noexcept {
+          barrier.arrive_and_wait();
         }
 
         friend env<false, std::__x<EnvT>> tag_invoke(ex::get_env_t, const receiver& __self) {
@@ -216,16 +201,16 @@ namespace {
         R r_;
 
         friend void tag_invoke(ex::start_t, op_state& self) noexcept {
+          // Exiting cooperative context, execute predecessor 
+          // operation state by all threads
           ex::start(self.op_state_);
-          barrier.arrive_and_wait();
 
           if (is_main_thread()) {
             ex::set_value(std::move(self.r_));
           }
         }
 
-        friend op_state& tag_invoke(get_cooperative_op_state_t, op_state& self)
-        {
+        friend op_state& tag_invoke(get_cooperative_op_state_t, op_state& self) {
           return self;
         }
       };
@@ -425,7 +410,7 @@ namespace {
     wrapper::sender<std::__x<S>> tag_invoke(
       ex::connect_transform_t,
       coop::domain,
-      ex::then_t,
+      auto&& tag,
       S&& then,
       E&& env) {
       return wrapper::sender<std::__x<S>>{then};
@@ -478,14 +463,6 @@ struct inline_scheduler {
 
   friend bool operator==(inline_scheduler, inline_scheduler) noexcept { return true; }
   friend bool operator!=(inline_scheduler, inline_scheduler) noexcept { return false; }
-};
-
-template <bool IsCooperative>
-struct test_1 {
-  constexpr static bool is_cooperative = IsCooperative;
-};
-
-struct test_2 {
 };
 
 int main() {
