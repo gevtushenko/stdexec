@@ -4012,7 +4012,9 @@ namespace std::execution {
         using _Sender = __t<_SenderId>;
         using __base_t = __operation_base<_ReceiverId, _Withs...>;
         using __receiver_t = __receiver<_ReceiverId, _Withs...>;
-        connect_result_t<_Sender, __receiver_t> __state_;
+        using __base_op_state_t = connect_result_t<_Sender, __receiver_t>;
+
+        __base_op_state_t __state_;
 
         __operation(_Sender&& __sndr, auto&& __rcvr, auto&& __withs)
           : __base_t{(decltype(__rcvr)) __rcvr, (decltype(__withs)) __withs}
@@ -4021,6 +4023,14 @@ namespace std::execution {
 
         friend void tag_invoke(start_t, __operation& __self) noexcept {
           start(__self.__state_);
+        }
+
+        template <class _Tag, class... _As>
+          requires __callable<_Tag, __base_op_state_t&, _As...>
+        friend auto tag_invoke(_Tag __tag, __operation& __self, _As&&... __as)
+          noexcept(__nothrow_callable<_Tag, __base_op_state_t&, _As...>)
+          -> tag_invoke_result_t<_Tag, __base_op_state_t&, _As...> {
+          return ((_Tag&&) __tag)(__self.__state_, (_As&&) __as...);
         }
       };
 
