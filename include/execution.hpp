@@ -18,6 +18,7 @@
 #include <atomic>
 #include <cassert>
 #include <condition_variable>
+#include <exception>
 #include <stdexcept>
 #include <memory>
 #include <mutex>
@@ -2658,10 +2659,125 @@ namespace std::execution {
   /////////////////////////////////////////////////////////////////////////////
   // [execution.senders.adaptors.bulk]
   namespace __bulk {
+    template <class _ReceiverId, integral _Shape, class _FunId>
+      class __receiver
+        : receiver_adaptor<__receiver<_ReceiverId, _Shape, _FunId>, __t<_ReceiverId>> {
+        using _Receiver = __t<_ReceiverId>;
+        using _Fun = __t<_FunId>;
+        friend receiver_adaptor<__receiver, _Receiver>;
+
+        [[no_unique_address]] _Shape __shape_;
+        [[no_unique_address]] _Fun __f_;
+
+        template <class... _As>
+        void set_value(_As&&... __as) && noexcept 
+          requires __nothrow_invocable<_Fun, _Shape, _As...> {
+          for (_Shape __i{}; __i != __shape_; ++__i) {
+            invoke(__f_, __i, forward<_As>(__as)...);
+          }
+          execution::set_value(move(this->base()), forward<_As&&>(__as)...);
+        }
+
+        template <class... _As>
+        void set_value(_As&&... __as) && noexcept {
+          try {
+            for (_Shape __i{}; __i != __shape_; ++__i) {
+              invoke(__f_, __i, forward<_As>(__as)...);
+            }
+            execution::set_value(move(this->base()), forward<_As&&>(__as)...);
+          } catch(...) {
+            set_error(move(this->base()), current_exception());
+            execution::set_error(move(this->base()), current_exception());
+          }
+        }
+
+       public:
+        explicit __receiver(_Receiver __rcvr, _Shape __shape, _Fun __fun)
+          : receiver_adaptor<__receiver, _Receiver>((_Receiver&&) __rcvr)
+          , __shape_(__shape)
+          , __f_((_Fun&&) __fun)
+        {}
+      };
+
+    struct bulk_t;
+
+    template <class _SenderId, integral _Shape, class _FunId>
+      struct __sender {
+        using _Sender = __t<_SenderId>;
+        using _Fun = __t<_FunId>;
+        template <receiver _Receiver>
+          using __receiver = __receiver<__x<remove_cvref_t<_Receiver>>, _Shape, _FunId>;
+
+        [[no_unique_address]] _Sender __sndr_;
+        [[no_unique_address]] _Shape __shape_;
+        [[no_unique_address]] _Fun __fun_;
+
+        template <class _Tag, class _Fun, class _Sender, class _Env>
+          using __with_error_invoke_t =
+            __if_c<
+              __v<__gather_sigs_t<
+                _Tag,
+                _Sender,
+                _Env,
+                __mbind_front_q<__non_throwing_, _Fun, _Shape>,
+                __q<__mand>>>,
+              completion_signatures<>,
+              __with_exception_ptr>;
+
+        template <class _Self, class _Env>
+          using __completion_signatures =
+            __make_completion_signatures<
+              __member_t<_Self, _Sender>,
+              _Env,
+              __with_error_invoke_t<set_value_t, _Fun, __member_t<_Self, _Sender>, _Env>>;
+
+        template <__decays_to<__sender> _Self, receiver _Receiver>
+          requires sender_to<__member_t<_Self, _Sender>, __receiver<_Receiver>>
+        friend auto tag_invoke(connect_t, _Self&& __self, _Receiver&& __rcvr)
+          noexcept(__nothrow_connectable<__member_t<_Self, _Sender>, __receiver<_Receiver>>)
+          -> connect_result_t<__member_t<_Self, _Sender>, __receiver<_Receiver>> {
+          return execution::connect(
+              ((_Self&&) __self).__sndr_,
+              __receiver<_Receiver>{
+                (_Receiver&&) __rcvr, 
+                __self.__shape_, 
+                ((_Self&&) __self).__fun_});
+        }
+
+        template <__decays_to<__sender> _Self, class _Env>
+        friend auto tag_invoke(get_completion_signatures_t, _Self&&, _Env)
+          -> dependent_completion_signatures<_Env>;
+
+        template <__decays_to<__sender> _Self, class _Env>
+        friend auto tag_invoke(get_completion_signatures_t, _Self&&, _Env)
+          -> __completion_signatures<_Self, _Env> requires true;
+
+        friend auto tag_invoke(get_descriptor_t, const __sender&) noexcept
+          -> sender_descriptor_t<bulk_t(_Sender)>;
+
+        template <__sender_queries::__sender_query _Tag, class... _As>
+          requires __callable<_Tag, const _Sender&, _As...>
+        friend auto tag_invoke(_Tag __tag, const __sender& __self, _As&&... __as)
+          noexcept(__nothrow_callable<_Tag, const _Sender&, _As...>)
+          -> __call_result_if_t<__sender_queries::__sender_query<_Tag>, _Tag, const _Sender&, _As...> {
+          return ((_Tag&&) __tag)(__self.__sndr_, (_As&&) __as...);
+        }
+      };
+
     struct bulk_t {
+      template <sender _Sender, integral _Shape, class _Fun>
+        using __sender = __sender<__x<remove_cvref_t<_Sender>>, _Shape, __x<remove_cvref_t<_Fun>>>;
+
+      template <sender _Sender, integral _Shape, __movable_value _Fun>
+        requires sender<__sender<_Sender, _Shape, _Fun>>
+      __sender<_Sender, _Shape, _Fun> operator()(_Sender&& __sndr, _Shape __shape, _Fun __fun) const {
+        return __sender<_Sender, _Shape, _Fun>{
+          forward<_Sender>(__sndr), __shape, __fun};
+      }
+
       template <integral _Shape, class _Fun>
       __binder_back<bulk_t, _Shape, _Fun> operator()(_Shape __shape, _Fun __fun) const {
-        return {{}, {}, {(_Shape&&) __shape, (_Fun&&) __fun}};
+        return {{}, {}, {__shape, __fun}};
       }
     };
   }
