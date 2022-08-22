@@ -54,43 +54,26 @@ void print(T && ) {
   std::cout << __PRETTY_FUNCTION__ << std::endl;
 }
 
-struct empty_env {};
-
-struct recv0 {
-  friend void tag_invoke(ex::set_value_t, recv0&&) noexcept {}
-  friend void tag_invoke(ex::set_stopped_t, recv0&&) noexcept {}
-  friend void tag_invoke(ex::set_error_t, recv0&&, std::exception_ptr) noexcept {}
-  friend empty_env tag_invoke(ex::get_env_t, const recv0&) noexcept { return {}; }
-};
-
-// TODO:
-// - why accept both sender and a tag in the `connect_transform` if the sender gets passed anyway
-// - is receiver == environment? what if receiver forwards environment?
-// - is domain always forwarded? 
-// - can't pipe senders inside new `ex::on`
-// - can domain be undefined for a scheduler? don't see this requirements in the concept
-// - can I wrap N senders instead of one?
-// - transform will work only inside on?
-
 namespace {
   namespace coop {
     struct domain { };
 
-    struct is_cooperative_t {
-      template <class T>
-        requires std::tag_invocable<is_cooperative_t, const T&>
-      auto operator()(const T& o) const
-        -> std::tag_invoke_result_t<is_cooperative_t, const T&> {
-        return tag_invoke(is_cooperative_t{}, o);
-      }
+    template <bool IsCooperative, class BaseEnvId>
+      struct env {
+        using BaseEnv = std::__t<BaseEnvId>;
 
-      template <class T>
-      auto operator()(const T&) const noexcept {
-        return std::false_type{};
-      }
-    };
+        BaseEnv base_env_{};
 
-    inline constexpr is_cooperative_t is_cooperative{};
+        template <std::__none_of<ex::get_completion_signatures_t> _Tag, 
+                  class... _As>
+            requires std::tag_invocable<_Tag, const BaseEnv&, _As...>
+          friend auto tag_invoke(_Tag __tag, const env& __self, _As&&... __as) noexcept
+            -> std::tag_invoke_result_t<_Tag, const BaseEnv&, _As...> {
+            return ((_Tag&&) __tag)(__self.base_env_, (_As&&) __as...);
+          }
+
+        constexpr static bool is_cooperative = IsCooperative;
+      };
 
     struct get_cooperative_op_state_t {
       template <ex::operation_state T>
@@ -120,30 +103,10 @@ namespace {
     inline constexpr is_fake_env_t is_fake_env{};
 
     template <class T>
-    concept fake_env = requires(const T& o) {
-      { is_fake_env(o) } -> std::same_as<std::true_type>;
-      { is_cooperative(o) } -> std::same_as<std::true_type>;
-    };
-
-    template <class T>
-    concept coop = requires(const T& o) {
-      { is_cooperative(o) } -> std::same_as<std::true_type>;
-    };
+    concept coop = T::is_cooperative == true;
 
     template <class T>
     concept non_coop = !coop<T>;
-
-    template <typename R>
-    struct oper {
-      R recv_;
-      friend void tag_invoke(ex::start_t, oper& self) noexcept {
-        ex::set_value((R &&) self.recv_);
-      }
-
-      friend auto tag_invoke(is_cooperative_t, const oper&) {
-        return std::true_type{};
-      }
-    };
 
     namespace wrapper 
     {
@@ -151,16 +114,12 @@ namespace {
       struct receiver {
         EnvT env_;
 
-        friend auto tag_invoke(is_cooperative_t, const receiver&) {
-          return std::false_type{};
-        }
-
         template <std::__one_of<ex::set_value_t, ex::set_error_t, ex::set_stopped_t> _Tag, class... _Args>
         friend void tag_invoke(_Tag, const receiver& __self, _Args&&... __args) noexcept {
         }
 
-        friend auto tag_invoke(ex::get_env_t, const receiver& __self) {
-          return ex::make_env(__self.env_, ex::with(is_cooperative, std::false_type{}));
+        friend env<false, std::__x<EnvT>> tag_invoke(ex::get_env_t, const receiver& __self) {
+          return env<false, std::__x<EnvT>>{__self.env_};
         }
       };
 
@@ -179,10 +138,6 @@ namespace {
           } else {
             ex::start(get_cooperative_op_state(self.op_state_));
           }
-        }
-
-        friend auto tag_invoke(is_cooperative_t, const op_state&) {
-          return std::false_type{};
         }
 
         friend auto tag_invoke(get_cooperative_op_state_t, op_state& self)
@@ -233,9 +188,7 @@ namespace {
           };
         }
 
-        friend auto tag_invoke(is_cooperative_t, const sender&) {
-          return std::true_type{};
-        }
+        constexpr static bool is_cooperative = true;
       };
     }
 
@@ -245,16 +198,12 @@ namespace {
       struct receiver {
         EnvT env_;
 
-        friend auto tag_invoke(is_cooperative_t, const receiver&) {
-          return std::false_type{};
-        }
-
         template <std::__one_of<ex::set_value_t, ex::set_error_t, ex::set_stopped_t> _Tag, class... _Args>
         friend void tag_invoke(_Tag, const receiver& __self, _Args&&... __args) noexcept {
         }
 
-        friend auto tag_invoke(ex::get_env_t, const receiver& __self) {
-          return ex::make_env(__self.env_, ex::with(is_cooperative, std::false_type{}));
+        friend env<false, std::__x<EnvT>> tag_invoke(ex::get_env_t, const receiver& __self) {
+          return env<false, std::__x<EnvT>>{__self.env_};
         }
       };
 
@@ -273,10 +222,6 @@ namespace {
           if (is_main_thread()) {
             ex::set_value(std::move(self.r_));
           }
-        }
-
-        friend auto tag_invoke(is_cooperative_t, const op_state&) {
-          return std::false_type{};
         }
 
         friend op_state& tag_invoke(get_cooperative_op_state_t, op_state& self)
@@ -326,28 +271,23 @@ namespace {
           };
         }
 
-        friend auto tag_invoke(is_cooperative_t, const sender&) {
-          return std::true_type{};
-        }
+        constexpr static bool is_cooperative = true;
       };
     }
 
     namespace unscoped_transfer
     {
-      template <class EnvT>
+      template <class EID>
       struct receiver {
+        using EnvT = std::__t<EID>;
         EnvT env_;
-
-        friend auto tag_invoke(is_cooperative_t, const receiver&) {
-          return std::false_type{};
-        }
 
         template <std::__one_of<ex::set_value_t, ex::set_error_t, ex::set_stopped_t> _Tag, class... _Args>
         friend void tag_invoke(_Tag, const receiver& __self, _Args&&... __args) noexcept {
         }
 
-        friend auto tag_invoke(ex::get_env_t, const receiver& __self) {
-          return ex::make_env(__self.env_, ex::with(is_cooperative, std::true_type{}));
+        friend env<true, EID> tag_invoke(ex::get_env_t, const receiver& __self) {
+          return env<true, EID>{__self.env_};
         }
       };
 
@@ -370,10 +310,6 @@ namespace {
           ex::set_value(std::move(self.r_));
         }
 
-        friend auto tag_invoke(is_cooperative_t, const op_state&) {
-          return std::false_type{};
-        }
-
         friend O& tag_invoke(get_cooperative_op_state_t, op_state& self)
         {
           return self.op_state_;
@@ -386,7 +322,7 @@ namespace {
             std::__x<
               ex::connect_result_t<
                 S, 
-                receiver<ex::env_of_t<R>>
+                receiver<std::__x<ex::env_of_t<R>>>
               >
             >, 
             std::__x<R> 
@@ -418,18 +354,24 @@ namespace {
           -> op_state_t<std::__member_t<Self, S>, R> {
           ex::env_of_t<R> env = ex::get_env(r);
           return op_state_t<std::__member_t<Self, S>, R>{
-              ex::connect(std::forward<Self>(self).s_, receiver<ex::env_of_t<R>>{env}),
+              ex::connect(std::forward<Self>(self).s_, receiver<std::__x<ex::env_of_t<R>>>{env}),
               std::forward<R>(r)
           };
         }
 
-        friend auto tag_invoke(is_cooperative_t, const sender&) {
-          return std::true_type{};
-        }
+        constexpr static bool is_cooperative = true;
       };
     }
 
     struct inline_scheduler {
+      template <typename R>
+      struct oper {
+        R recv_;
+        friend void tag_invoke(ex::start_t, oper& self) noexcept {
+          ex::set_value((R &&) self.recv_);
+        }
+      };
+
       struct sender {
         using completion_signatures = ex::completion_signatures<ex::set_value_t()>;
         using descriptor_t = ex::sender_descriptor_t<ex::schedule_t()>;
@@ -444,9 +386,7 @@ namespace {
           return {};
         }
 
-        friend auto tag_invoke(is_cooperative_t, const sender&) {
-          return std::true_type{};
-        }
+        constexpr static bool is_cooperative = true;
       };
 
       friend sender tag_invoke(ex::schedule_t, inline_scheduler) { return {}; }
@@ -473,7 +413,7 @@ namespace {
       ex::connect_transform_t,
       coop::domain,
       ex::unscoped_transfer_t,
-      auto&& transfer,
+      non_coop auto&& transfer,
       auto&& env) {
       auto &&[sndr, sched] = transfer;
       using sndr_t = decltype(sndr);
@@ -538,6 +478,14 @@ struct inline_scheduler {
 
   friend bool operator==(inline_scheduler, inline_scheduler) noexcept { return true; }
   friend bool operator!=(inline_scheduler, inline_scheduler) noexcept { return false; }
+};
+
+template <bool IsCooperative>
+struct test_1 {
+  constexpr static bool is_cooperative = IsCooperative;
+};
+
+struct test_2 {
 };
 
 int main() {
