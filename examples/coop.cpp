@@ -179,14 +179,13 @@ namespace {
         O op_state_;
 
         friend void tag_invoke(ex::start_t, op_state& self) noexcept {
-          if constexpr (std::tag_invocable<get_cooperative_op_state_t, O&>) {
-            if (is_main_thread()) {
-              ex::start(self.op_state_);
-            } else {
-              ex::start(get_cooperative_op_state(self.op_state_));
-            }
-          }
           std::printf("wrapper::op_state::start\n");
+
+          if (is_main_thread()) {
+            ex::start(self.op_state_);
+          } else {
+            ex::start(get_cooperative_op_state(self.op_state_));
+          }
         }
 
         friend auto tag_invoke(is_cooperative_t, const op_state&) {
@@ -356,17 +355,11 @@ namespace {
         friend void tag_invoke(ex::start_t, op_state& self) noexcept
         {
           std::printf("unscoped_transfer::op_state::start\n");
-          print(self.op_state_);
 
-          if constexpr (std::tag_invocable<get_cooperative_op_state_t, O&>)
-          {
-            std::printf("unscoped_transfer::op_state::start::coop\n");
-            if (is_main_thread()) {
-              std::printf("unscoped_transfer::op_state::start::main\n");
-              ex::start(self.op_state_);
-            } else {
-              ex::start(get_cooperative_op_state(self.op_state_));
-            }
+          if (is_main_thread()) {
+            ex::start(self.op_state_);
+          } else {
+            ex::start(get_cooperative_op_state(self.op_state_));
           }
         }
 
