@@ -1560,7 +1560,7 @@ Possible extra rowspan handling
     blockquote c-[vi] { color: inherit; } /* Name.Variable.Instance */
     blockquote c-[il] { color: inherit; } /* Literal.Number.Integer.Long */
   </style>
-  <meta content="Bikeshed version 9559857, updated Fri Jul 29 17:25:02 2022 -0700" name="generator">
+  <meta content="Bikeshed version 44af0bf3e, updated Fri Jul 29 17:05:16 2022 -0700" name="generator">
   <link href="https://wg21.link/P2300" rel="canonical">
   <link href="https://isocpp.org/favicon.ico" rel="icon">
 <style>
@@ -2194,7 +2194,7 @@ c-[il] { color: #000000 } /* Literal.Number.Integer.Long */
   <div class="head">
    <p data-fill-with="logo"></p>
    <h1 class="p-name no-ref" id="title">D2300R6<br><code class="highlight"><c- n>std</c-><c- o>::</c-><c- n>execution</c-></code></h1>
-   <h2 class="no-num no-toc no-ref heading settled" id="profile-and-date"><span class="content">Draft Proposal, <time class="dt-updated" datetime="2022-07-30">2022-07-30</time></span></h2>
+   <h2 class="no-num no-toc no-ref heading settled" id="profile-and-date"><span class="content">Draft Proposal, <time class="dt-updated" datetime="2022-08-23">2022-08-23</time></span></h2>
    <div data-fill-with="spec-metadata">
     <dl>
      <dt class="editor">Authors:
@@ -6653,7 +6653,7 @@ sender. If <code class="highlight"><c- n>error_types_of_t</c-><c- o>&lt;</c-><c-
 shall name the type <code class="highlight"><c- n>Variant</c-><c- o>&lt;</c-><c- n>E</c-><i><sub><c- n>0</c-></sub></i><c- p>,</c-> <c- n>E</c-><i><sub><c- n>1</c-></sub></i><c- p>,</c-> <c- p>...,</c-> <c- n>E</c-><i><sub><c- n>N</c-></sub></i><c- o>></c-></code>, where the types <code class="highlight"><c- n>E</c-><i><sub><c- n>0</c-></sub></i></code> through <code class="highlight"><c- n>E</c-><i><sub><c- n>N</c-></sub></i></code> are the types the sender <code class="highlight"><c- n>S</c-></code> passes as arguments to <code class="highlight"><c- n>execution</c-><c- o>::</c-><c- n>set_error</c-></code> (besides the receiver object). Such a sender <code class="highlight"><c- n>S</c-></code> shall not odr-use <code class="highlight"><c- n>execution</c-><c- o>::</c-><c- n>set_error</c-><c- p>(</c-><c- n>r</c-><c- p>,</c-> <c- n>e</c-><c- p>)</c-></code>, where <code class="highlight"><c- k>decltype</c-><c- p>(</c-><c- n>e</c-><c- p>)</c-></code> is not one of the types <code class="highlight"><c- n>E</c-><i><sub><c- n>0</c-></sub></i></code> through <code class="highlight"><c- n>E</c-><i><sub><c- n>N</c-></sub></i></code> (ignoring differences in rvalue-reference qualification).</p>
     <li data-md>
      <p>Let <code class="highlight"><c- n>r</c-></code> be an rvalue receiver of type <code class="highlight"><c- n>R</c-></code>, and let <code class="highlight"><c- n>S</c-></code> be the type of a
-sender. If <code class="highlight"><c- n>completion_signatures_of_t</c-><c- o>&lt;</c-><c- n>S</c-><c- p>,</c-> <c- n>env_of_t</c-><c- o>&lt;</c-><c- n>R</c-><c- o>>>::</c-><c- n>sends_stopped</c-></code> is well formed and <code class="highlight">false</code>, such a sender <code class="highlight"><c- n>S</c-></code> shall not odr-use <code class="highlight"><c- n>execution</c-><c- o>::</c-><c- n>set_stopped</c-><c- p>(</c-><c- n>r</c-><c- p>)</c-></code>.</p>
+sender. If <code class="highlight"><c- n>sends_stopped</c-><c- o>&lt;</c-><c- n>S</c-><c- p>,</c-> <c- n>env_of_t</c-><c- o>&lt;</c-><c- n>R</c-><c- o>>></c-></code> is well formed and <code class="highlight">false</code>, such a sender <code class="highlight"><c- n>S</c-></code> shall not odr-use <code class="highlight"><c- n>execution</c-><c- o>::</c-><c- n>set_stopped</c-><c- p>(</c-><c- n>r</c-><c- p>)</c-></code>.</p>
     <li data-md>
      <p>Let <code class="highlight"><c- n>S</c-></code> be the type of a sender, let <code class="highlight"><c- n>E</c-></code> be the type of an execution
 environment other than <code class="highlight"><c- n>execution</c-><c- o>::</c-><c- n>no_env</c-></code> such that <code class="highlight"><c- n>sender</c-><c- o>&lt;</c-><c- n>S</c-><c- p>,</c-> <c- n>E</c-><c- o>></c-></code> is <code class="highlight">true</code>. Let <code class="highlight"><c- n>Tuple</c-></code>, <code class="highlight"><c- n>Variant1</c-></code>, and <code class="highlight"><c- n>Variant2</c-></code> be variadic alias templates
@@ -6673,8 +6673,8 @@ or class templates such that following types are well-formed:</p>
        <p><code class="highlight"><c- n>error_types_of_t</c-><c- o>&lt;</c-><c- n>S</c-><c- p>,</c-> <c- n>E</c-><c- p>,</c-> <c- n>Variant2</c-><c- o>></c-></code> shall also be well-formed and shall
   name the same type as <code class="highlight"><c- n>error_types_of_t</c-><c- o>&lt;</c-><c- n>S</c-><c- p>,</c-> <c- n>no_env</c-><c- p>,</c-> <c- n>Variant2</c-><c- o>></c-></code>, and</p>
       <li data-md>
-       <p><code class="highlight"><c- n>completion_signatures_of_t</c-><c- o>&lt;</c-><c- n>S</c-><c- p>,</c-> <c- n>E</c-><c- o>>::</c-><c- n>sends_stopped</c-></code> shall have the same
-  value as <code class="highlight"><c- n>completion_signatures_of_t</c-><c- o>&lt;</c-><c- n>S</c-><c- p>,</c-> <c- n>no_env</c-><c- o>>::</c-><c- n>sends_stopped</c-></code>.</p>
+       <p><code class="highlight"><c- n>sends_stopped</c-><c- o>&lt;</c-><c- n>S</c-><c- p>,</c-> <c- n>E</c-><c- o>></c-></code> shall have the same
+  value as <code class="highlight"><c- n>sends_stopped</c-><c- o>&lt;</c-><c- n>S</c-><c- p>,</c-> <c- n>no_env</c-><c- o>></c-></code>.</p>
      </ul>
     <li data-md>
      <p>[<i>Note</i>: The types <code class="highlight"><c- n>Args</c-><i><sub><c- n>i</c-></sub></i><c- p>...</c-></code> and <code class="highlight"><c- n>E</c-><i><sub><c- n>i</c-></sub></i><c- p>...</c-></code> captured in <code class="highlight"><c- n>value_types</c-></code> and <code class="highlight"><c- n>error_types</c-></code> can appear in any order.
@@ -7580,18 +7580,24 @@ defined class type equivalent to the following:</p>
           <li data-md>
            <p>If <code class="highlight"><c- n>r</c-></code>'s receiver contract has already been satisfied, then let <code class="highlight"><i><c- n>Signal</c-></i></code> be whichever receiver completion-signal
 was used to complete r’s receiver contract ([exec.recv]). Calls <code class="highlight"><i><c- n>Signal</c-></i><c- p>(</c-><c- n>out_r</c->'<c- p>,</c-> <c- n>args2</c-><c- p>...)</c-></code>, where <code class="highlight"><c- n>args2</c-><c- p>...</c-></code> is a
-pack of const lvalues referencing the subobjects of <code class="highlight"><c- n>sh_state</c-></code> that have
-been saved by the original call to <code class="highlight"><i><c- n>Signal</c-></i><c- p>(</c-><c- n>r</c-><c- p>,</c-> <c- n>args</c-><c- p>...)</c-></code> and returns.</p>
+pack of const lvalues referencing the subobjects of <code class="highlight"><c- n>sh_state</c-></code> that
+have been saved by the original call to <code class="highlight"><i><c- n>Signal</c-></i><c- p>(</c-><c- n>r</c-><c- p>,</c-> <c- n>args</c-><c- p>...)</c-></code> and returns.</p>
           <li data-md>
            <p>Otherwise, it emplace constructs the stop callback optional with
 the arguments <code class="highlight"><c- n>execution</c-><c- o>::</c-><c- n>get_stop_token</c-><c- p>(</c-><c- n>get_env</c-><c- p>(</c-><c- n>out_r</c->'<c- p>))</c-></code> and <code class="highlight"><i><c- n>stop</c-><c- o>-</c-><c- n>callback</c-><c- o>-</c-><c- n>fn</c-></i><c- p>{</c-><i><c- n>stop</c-><c- o>-</c-><c- n>src</c-></i><c- p>}</c-></code>, where <code class="highlight"><i><c- n>stop</c-><c- o>-</c-><c- n>src</c-></i></code> refers to the stop source of <code class="highlight"><c- n>sh_state</c-></code>.</p>
           <li data-md>
-           <p>Then, it checks to see if <code class="highlight"><i><c- n>stop</c-><c- o>-</c-><c- n>src</c-></i><c- p>.</c-><c- n>stop_requested</c-><c- p>()</c-></code> is <code class="highlight">true</code>. If so, it
-calls <code class="highlight"><c- n>execution</c-><c- o>::</c-><c- n>set_stopped</c-><c- p>(</c-><c- n>out_r</c->'<c- p>)</c-></code>.</p>
-          <li data-md>
            <p>Otherwise, it adds a pointer to <code class="highlight"><c- n>op_state</c-></code> to the list of
-operation states in <code class="highlight"><c- n>sh_state</c-></code> and calls <code class="highlight"><c- n>execution</c-><c- o>::</c-><c- n>start</c-><c- p>(</c-><c- n>op_state2</c-><c- p>)</c-></code> if this would be the first such
-invocation.</p>
+operation states in <code class="highlight"><c- n>sh_state</c-></code>. If <code class="highlight"><c- n>op_state</c-></code> is the first such
+state added to the list:</p>
+           <ul>
+            <li data-md>
+             <p>If <code class="highlight"><i><c- n>stop</c-><c- o>-</c-><c- n>src</c-></i><c- p>.</c-><c- n>stop_requested</c-><c- p>()</c-></code> is <code class="highlight">true</code>,
+  all of the operation states in <code class="highlight"><c- n>sh_state</c-></code>'s list of operation
+  states are notified as if <code class="highlight"><c- n>execution</c-><c- o>::</c-><c- n>set_stopped</c-><c- p>(</c-><c- n>r</c-><c- p>)</c-></code> had
+  been called.</p>
+            <li data-md>
+             <p>Otherwise, <code class="highlight"><c- n>execution</c-><c- o>::</c-><c- n>start</c-><c- p>(</c-><c- n>op_state2</c-><c- p>)</c-></code> is called.</p>
+           </ul>
          </ul>
         <li data-md>
          <p>When <code class="highlight"><c- n>r</c-></code> completes it will notify <code class="highlight"><c- n>op_state</c-></code> that the result are
