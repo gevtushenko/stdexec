@@ -212,6 +212,16 @@ function(def_example target sourceFile)
 endfunction()
 
 def_example(clangd.helper "examples/_clangd_helper_file.cpp")
+
+def_example(example.maxwell.omp "examples/maxwell/omp.cpp")
+def_example(example.maxwell.snr "examples/maxwell/snr.cpp")
+def_example(example.maxwell.std "examples/maxwell/std.cpp")
+
+find_package(OpenMP)
+if(OpenMP_CXX_FOUND)
+  target_link_libraries(example.maxwell.omp PRIVATE OpenMP::OpenMP_CXX)
+endif()
+
 def_example(example.hello_world "examples/hello_world.cpp")
 def_example(example.hello_coro "examples/hello_coro.cpp")
 def_example(example.scope "examples/scope.cpp")
