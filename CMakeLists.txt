@@ -265,3 +265,5 @@ rapids_export(
   NAMESPACE P2300::
   FINAL_CODE_BLOCK code_string
 )
+
+add_subdirectory(examples/cuda)
