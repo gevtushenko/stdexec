@@ -16,6 +16,7 @@
 
 #include <execution.hpp>
 #include "schedulers/stream.hpp"
+#include <thrust/device_vector.h>
 
 namespace ex = std::execution;
 
@@ -52,6 +53,15 @@ struct printer_t {
   }
 };
 
+__host__ __device__ 
+std::uint64_t fib(std::uint64_t n) {
+   if (n <= 1) {
+     return n;
+   }
+
+   return fib(n - 1) + fib(n - 2);
+}
+
 int main() {
   example::cuda::stream::scheduler_t scheduler{};
 
@@ -65,13 +75,22 @@ int main() {
   }
 
   {
+    const int n = 1024;
+    thrust::device_vector<std::uint64_t> a(n, 18);
+    thrust::device_vector<std::uint64_t> b(n);
+    thrust::device_vector<std::uint64_t> c(n);
+    thrust::device_vector<std::uint64_t> d(n);
+
+    std::uint64_t *d_a = thrust::raw_pointer_cast(a.data());
+    std::uint64_t *d_b = thrust::raw_pointer_cast(b.data());
+    std::uint64_t *d_c = thrust::raw_pointer_cast(c.data());
+    std::uint64_t *d_d = thrust::raw_pointer_cast(d.data());
+
     auto snd = 
-      ex::when_all(
-        ex::schedule(scheduler) | ex::bulk(1, [](int idx){}),
-        ex::schedule(scheduler) | ex::bulk(2, [](int idx){}),
-        ex::schedule(scheduler) | ex::bulk(3, [](int idx){}),
-        ex::schedule(scheduler) | ex::bulk(4, [](int idx){}))
-      | ex::transfer(scheduler)
+      ex::transfer_when_all(scheduler,
+        ex::schedule(scheduler) | ex::bulk(n, [d_a, d_b](int idx){ d_b[idx] += fib(d_a[idx]); }),
+        ex::schedule(scheduler) | ex::bulk(n, [d_a, d_c](int idx){ d_c[idx] -= fib(d_a[idx]); }),
+        ex::schedule(scheduler) | ex::bulk(n, [d_a, d_d](int idx){ d_d[idx] *= fib(d_a[idx]); }))
       | ex::then([] { std::printf("done\n"); });
 
     std::this_thread::sync_wait(std::move(snd));
