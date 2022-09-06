@@ -55,10 +55,26 @@ struct printer_t {
 int main() {
   example::cuda::stream::scheduler_t scheduler{};
 
-  auto snd = ex::schedule(scheduler) 
-           | ex::then([]() -> int { return 42; })
-           | ex::bulk(4, printer_t{1})
-           | ex::bulk(4, printer_t{2});
-  std::this_thread::sync_wait(std::move(snd));
+  if (0)
+  {
+    auto snd = ex::schedule(scheduler) 
+             | ex::then([]() -> int { return 42; })
+             | ex::bulk(4, printer_t{1})
+             | ex::bulk(4, printer_t{2});
+    std::this_thread::sync_wait(std::move(snd));
+  }
+
+  {
+    auto snd = 
+      ex::when_all(
+        ex::schedule(scheduler) | ex::bulk(1, [](int idx){}),
+        ex::schedule(scheduler) | ex::bulk(2, [](int idx){}),
+        ex::schedule(scheduler) | ex::bulk(3, [](int idx){}),
+        ex::schedule(scheduler) | ex::bulk(4, [](int idx){}))
+      | ex::transfer(scheduler)
+      | ex::then([] { std::printf("done\n"); });
+
+    std::this_thread::sync_wait(std::move(snd));
+  }
 }
 
