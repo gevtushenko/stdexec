@@ -47,8 +47,8 @@ inline __host__ __device__ bool is_on_gpu() {
 struct printer_t {
   int val_;
 
-  __host__ __device__ void operator()(int idx) {
-    printf("%d: %d (on %s)\n", val_, idx, (is_on_gpu() ? "gpu" : "cpu"));
+  __host__ __device__ void operator()(int idx, int val) {
+    printf("%d: %d (on %s) val = %d\n", val_, idx, (is_on_gpu() ? "gpu" : "cpu"), val);
   }
 };
 
@@ -56,7 +56,7 @@ int main() {
   example::cuda::stream::scheduler_t scheduler{};
 
   auto snd = ex::schedule(scheduler) 
-           | ex::then([] { printer_t{0}(0); })
+           | ex::then([]() -> int { return 42; })
            | ex::bulk(4, printer_t{1})
            | ex::bulk(4, printer_t{2});
   std::this_thread::sync_wait(std::move(snd));
