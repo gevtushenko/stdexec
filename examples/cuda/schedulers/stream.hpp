@@ -22,7 +22,9 @@
 
 namespace example::cuda::stream {
   struct receiver_base_t {};
-  struct operation_state_base_t {};
+  struct operation_state_base_t {
+    cudaStream_t stream_{0};
+  };
 
   namespace then {
 
@@ -38,15 +40,15 @@ namespace example::cuda::stream {
         *result = fn(as...);
       }
 
-    template <class ReceiverId, class FunId>
+    template <class ReceiverId, class Fun>
       class receiver_t
-        : std::execution::receiver_adaptor<receiver_t<ReceiverId, FunId>, std::__t<ReceiverId>>
+        : std::execution::receiver_adaptor<receiver_t<ReceiverId, Fun>, std::__t<ReceiverId>>
         , receiver_base_t {
         using Receiver = std::__t<ReceiverId>;
-        using Fun = std::__t<FunId>;
         friend std::execution::receiver_adaptor<receiver_t, Receiver>;
 
         Fun f_;
+        operation_state_base_t &op_state_;
 
         template <class... As>
         void set_value(As&&... as) && noexcept 
@@ -70,10 +72,48 @@ namespace example::cuda::stream {
         }
 
        public:
-        explicit receiver_t(Receiver rcvr, Fun fun)
+        explicit receiver_t(Receiver rcvr, Fun fun, operation_state_base_t &op_state)
           : std::execution::receiver_adaptor<receiver_t, Receiver>((Receiver&&) rcvr)
           , f_((Fun&&) fun)
+          , op_state_(op_state)
         {}
+      };
+
+    template <class SenderId, class ReceiverId, class Fun>
+      struct op_state_t : operation_state_base_t {
+        using Sender = std::__t<SenderId>;
+        using Receiver = std::__t<ReceiverId>;
+        using then_receiver_t = receiver_t<ReceiverId, Fun>;
+        using inner_op_state = std::execution::connect_result_t<Sender, then_receiver_t>;
+
+        inner_op_state inner_op_;
+
+        friend void tag_invoke(std::execution::start_t, op_state_t& op) noexcept {
+          cudaStreamCreate(&op.stream_);
+          std::execution::start(op.inner_op_);
+        }
+
+        operation_state_base_t& get_stream_provider() {
+          if constexpr (std::is_base_of_v<operation_state_base_t, inner_op_state>) {
+            return inner_op_;
+          }
+
+          return *this;
+        }
+
+        op_state_t(Fun fn, Sender&& sender, Receiver receiver)
+          : inner_op_{ 
+              std::execution::connect(
+                  (Sender&&)sender, 
+                  then_receiver_t((Receiver&&)receiver, fn, get_stream_provider())) } 
+        { }
+
+        ~op_state_t() {
+          if (stream_) {
+            cudaStreamDestroy(stream_);
+            stream_ = 0;
+          }
+        }
       };
 
     template <class SenderId, class FunId>
@@ -88,8 +128,12 @@ namespace example::cuda::stream {
           std::execution::completion_signatures<
             std::execution::set_error_t(std::exception_ptr)>;
 
-        template <std::execution::receiver Receiver>
-          using receiver = receiver_t<std::__x<std::remove_cvref_t<Receiver>>, FunId>;
+        template <class Self, class Receiver>
+          using operation_state_t = 
+            op_state_t<
+              std::__x<std::__member_t<Self, Sender>>, 
+              std::__x<std::remove_cvref_t<Receiver>>, 
+              Fun>;
 
         template <class Self, class Env>
           using completion_signatures =
@@ -106,10 +150,9 @@ namespace example::cuda::stream {
         template <std::__decays_to<sender_t> Self, std::execution::receiver Receiver>
           requires std::execution::receiver_of<Receiver, completion_signatures<Self, std::execution::env_of_t<Receiver>>>
         friend auto tag_invoke(std::execution::connect_t, Self&& self, Receiver&& rcvr)
-          noexcept(std::execution::__nothrow_connectable<std::__member_t<Self, Sender>, receiver<Receiver>>) 
-          -> std::execution::connect_result_t<std::__member_t<Self, Sender>, receiver<Receiver>> {
-          return std::execution::connect(((Self&&)self).sndr_, 
-              receiver<Receiver>{(Receiver&&)rcvr, self.fun_});
+          noexcept(std::is_nothrow_constructible_v<operation_state_t<Self, Receiver>, Fun, Sender, Receiver>) 
+          -> operation_state_t<Self, Receiver> {
+          return operation_state_t<Self, Receiver>(self.fun_, ((Self&&)self).sndr_, (Receiver&&)rcvr);
         }
 
         template <std::__decays_to<sender_t> Self, class Env>
@@ -142,16 +185,17 @@ namespace example::cuda::stream {
         }
       }
 
-    template <class ReceiverId, std::integral Shape, class FunId>
+    template <class ReceiverId, std::integral Shape, class Fun>
       class receiver_t
-        : std::execution::receiver_adaptor<receiver_t<ReceiverId, Shape, FunId>, std::__t<ReceiverId>>
+        : std::execution::receiver_adaptor<receiver_t<ReceiverId, Shape, Fun>, std::__t<ReceiverId>>
         , receiver_base_t {
         using Receiver = std::__t<ReceiverId>;
-        using Fun = std::__t<FunId>;
         friend std::execution::receiver_adaptor<receiver_t, Receiver>;
 
         Shape shape_;
         Fun f_;
+
+        operation_state_base_t& op_state_;
 
         template <class... As>
         void set_value(As&&... as) && noexcept 
@@ -170,11 +214,49 @@ namespace example::cuda::stream {
         }
 
        public:
-        explicit receiver_t(Receiver rcvr, Shape shape, Fun fun)
+        explicit receiver_t(Receiver rcvr, Shape shape, Fun fun, operation_state_base_t& op_state)
           : std::execution::receiver_adaptor<receiver_t, Receiver>((Receiver&&) rcvr)
           , shape_(shape)
           , f_((Fun&&) fun)
+          , op_state_(op_state)
         {}
+      };
+
+    template <class SenderId, class ReceiverId, std::integral Shape, class Fun>
+      struct op_state_t : operation_state_base_t {
+        using Sender = std::__t<SenderId>;
+        using Receiver = std::__t<ReceiverId>;
+        using bulk_receiver_t = receiver_t<ReceiverId, Shape, Fun>;
+        using inner_op_state = std::execution::connect_result_t<Sender, bulk_receiver_t>;
+
+        inner_op_state inner_op_;
+
+        friend void tag_invoke(std::execution::start_t, op_state_t& op) noexcept {
+          cudaStreamCreate(&op.stream_);
+          std::execution::start(op.inner_op_);
+        }
+
+        operation_state_base_t& get_stream_provider() {
+          if constexpr (std::is_base_of_v<operation_state_base_t, inner_op_state>) {
+            return inner_op_;
+          }
+
+          return *this;
+        }
+
+        op_state_t(Shape shape, Fun fn, Sender&& sender, Receiver receiver)
+          : inner_op_{ 
+              std::execution::connect(
+                  (Sender&&)sender, 
+                  bulk_receiver_t((Receiver&&)receiver, shape, fn, get_stream_provider())) } 
+        { }
+
+        ~op_state_t() {
+          if (stream_) {
+            cudaStreamDestroy(stream_);
+            stream_ = 0;
+          }
+        }
       };
 
     template <class SenderId, std::integral Shape, class FunId>
@@ -190,8 +272,13 @@ namespace example::cuda::stream {
           std::execution::completion_signatures<
             std::execution::set_error_t(std::exception_ptr)>;
 
-        template <std::execution::receiver Receiver>
-          using receiver = receiver_t<std::__x<std::remove_cvref_t<Receiver>>, Shape, FunId>;
+        template <class Self, class Receiver>
+          using operation_state_t = 
+            op_state_t<
+              std::__x<std::__member_t<Self, Sender>>, 
+              std::__x<std::remove_cvref_t<Receiver>>, 
+              Shape,
+              Fun>;
 
         template <class... Tys>
         using set_value_t = 
@@ -209,10 +296,9 @@ namespace example::cuda::stream {
         template <std::__decays_to<sender_t> Self, std::execution::receiver Receiver>
           requires std::execution::receiver_of<Receiver, completion_signatures<Self, std::execution::env_of_t<Receiver>>>
         friend auto tag_invoke(std::execution::connect_t, Self&& self, Receiver&& rcvr)
-          noexcept(std::execution::__nothrow_connectable<std::__member_t<Self, Sender>, receiver<Receiver>>) 
-          -> std::execution::connect_result_t<std::__member_t<Self, Sender>, receiver<Receiver>> {
-          return std::execution::connect(((Self&&)self).sndr_, 
-              receiver<Receiver>{(Receiver&&)rcvr, self.shape_, self.fun_});
+          noexcept(std::is_nothrow_constructible_v<operation_state_t<Self, Receiver>, Fun, Sender, Receiver>) 
+          -> operation_state_t<Self, Receiver> {
+          return operation_state_t<Self, Receiver>(self.shape_, self.fun_, ((Self&&)self).sndr_, (Receiver&&)rcvr);
         }
 
         template <std::__decays_to<sender_t> Self, class Env>
