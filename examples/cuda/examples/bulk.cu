@@ -87,11 +87,11 @@ int main() {
     std::uint64_t *d_d = thrust::raw_pointer_cast(d.data());
 
     auto snd = 
-      ex::transfer_when_all(scheduler,
+      ex::when_all(
         ex::schedule(scheduler) | ex::bulk(n, [d_a, d_b](int idx){ d_b[idx] += fib(d_a[idx]); }),
         ex::schedule(scheduler) | ex::bulk(n, [d_a, d_c](int idx){ d_c[idx] -= fib(d_a[idx]); }),
         ex::schedule(scheduler) | ex::bulk(n, [d_a, d_d](int idx){ d_d[idx] *= fib(d_a[idx]); }))
-      | ex::then([] { std::printf("done\n"); });
+      | ex::transfer(scheduler) | ex::then([] { std::printf("done\n"); });
 
     std::this_thread::sync_wait(std::move(snd));
   }

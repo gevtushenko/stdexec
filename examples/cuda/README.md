@@ -4,8 +4,10 @@
 
 - [x] `then`
 - [x] `bulk`
+- [x] `transfer_when_all_with_variant`
 - [x] `transfer_when_all`
-- [ ] `when_all`
+- [x] `when_all_with_variant`
+- [x] `when_all`
 - [ ] `split`
 - [ ] `transfer_just`
 - [ ] `upon_*`
