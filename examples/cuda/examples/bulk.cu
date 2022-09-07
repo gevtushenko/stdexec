@@ -76,7 +76,7 @@ int main() {
 
   {
     const int n = 1024;
-    thrust::device_vector<std::uint64_t> a(n, 18);
+    thrust::device_vector<std::uint64_t> a(n, 10);
     thrust::device_vector<std::uint64_t> b(n);
     thrust::device_vector<std::uint64_t> c(n);
     thrust::device_vector<std::uint64_t> d(n);

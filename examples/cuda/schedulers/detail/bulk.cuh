@@ -20,7 +20,9 @@
 
 #include "common.cuh"
 
-namespace example::cuda::stream::bulk {
+namespace example::cuda::stream {
+
+namespace bulk {
 
 template <int BlockThreads, std::integral Shape, class Fun, class... As>
   __launch_bounds__(BlockThreads) 
@@ -104,9 +106,10 @@ template <class SenderId, class ReceiverId, std::integral Shape, class Fun>
       }
     }
   };
+}
 
 template <class SenderId, std::integral Shape, class FunId>
-  struct sender_t {
+  struct bulk_sender_t {
     using Sender = std::__t<SenderId>;
     using Fun = std::__t<FunId>;
 
@@ -120,7 +123,7 @@ template <class SenderId, std::integral Shape, class FunId>
 
     template <class Self, class Receiver>
       using operation_state_t = 
-        op_state_t<
+        bulk::op_state_t<
           std::__x<std::__member_t<Self, Sender>>, 
           std::__x<std::remove_cvref_t<Receiver>>, 
           Shape,
@@ -139,7 +142,7 @@ template <class SenderId, std::integral Shape, class FunId>
           set_error_t,
           std::__q<set_value_t>>;
 
-    template <std::__decays_to<sender_t> Self, std::execution::receiver Receiver>
+    template <std::__decays_to<bulk_sender_t> Self, std::execution::receiver Receiver>
       requires std::execution::receiver_of<Receiver, completion_signatures<Self, std::execution::env_of_t<Receiver>>>
     friend auto tag_invoke(std::execution::connect_t, Self&& self, Receiver&& rcvr)
       noexcept(std::is_nothrow_constructible_v<operation_state_t<Self, Receiver>, Fun, Sender, Receiver>) 
@@ -147,17 +150,17 @@ template <class SenderId, std::integral Shape, class FunId>
       return operation_state_t<Self, Receiver>(self.shape_, self.fun_, ((Self&&)self).sndr_, (Receiver&&)rcvr);
     }
 
-    template <std::__decays_to<sender_t> Self, class Env>
+    template <std::__decays_to<bulk_sender_t> Self, class Env>
     friend auto tag_invoke(std::execution::get_completion_signatures_t, Self&&, Env)
       -> std::execution::dependent_completion_signatures<Env>;
 
-    template <std::__decays_to<sender_t> Self, class Env>
+    template <std::__decays_to<bulk_sender_t> Self, class Env>
     friend auto tag_invoke(std::execution::get_completion_signatures_t, Self&&, Env)
       -> completion_signatures<Self, Env> requires true;
 
     template <std::execution::tag_category<std::execution::forwarding_sender_query> Tag, class... As>
       requires std::__callable<Tag, const Sender&, As...>
-    friend auto tag_invoke(Tag tag, const sender_t& self, As&&... as)
+    friend auto tag_invoke(Tag tag, const bulk_sender_t& self, As&&... as)
       noexcept(std::__nothrow_callable<Tag, const Sender&, As...>)
       -> std::__call_result_if_t<std::execution::tag_category<Tag, std::execution::forwarding_sender_query>, Tag, const Sender&, As...> {
       return ((Tag&&) tag)(self.sndr_, (As&&) as...);

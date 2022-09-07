@@ -20,7 +20,9 @@
 
 #include "common.cuh"
 
-namespace example::cuda::stream::when_all {
+namespace example::cuda::stream {
+
+namespace when_all {
 
 enum state_t { started, error, stopped };
 
@@ -71,19 +73,20 @@ template <class Env, class... Senders>
           std::__push_back<std::__q<std::execution::completion_signatures>>, non_values, values>,
         non_values>;
   };
+}
 
 template <class... SenderIds>
-  struct sender_t {
+  struct when_all_sender_t {
     template <class... Sndrs>
-      explicit sender_t(Sndrs&&... __sndrs)
+      explicit when_all_sender_t(Sndrs&&... __sndrs)
         : sndrs_((Sndrs&&) __sndrs...)
       {}
 
    private:
     template <class CvrefEnv>
       using completion_sigs =
-        std::__t<traits<
-          env_t<std::remove_cvref_t<CvrefEnv>>,
+        std::__t<when_all::traits<
+          when_all::env_t<std::remove_cvref_t<CvrefEnv>>,
           std::__member_t<CvrefEnv, std::__t<SenderIds>>...>>;
 
     template <class Traits>
@@ -96,7 +99,7 @@ template <class... SenderIds>
 
     template <class CvrefReceiverId, std::size_t Index>
       struct receiver_t : std::execution::receiver_adaptor<receiver_t<CvrefReceiverId, Index>>, example::cuda::stream::receiver_base_t {
-        using WhenAll = std::__member_t<CvrefReceiverId, sender_t>;
+        using WhenAll = std::__member_t<CvrefReceiverId, when_all_sender_t>;
         using Receiver = std::__t<std::decay_t<CvrefReceiverId>>;
         using Traits =
           completion_sigs<
@@ -109,9 +112,9 @@ template <class... SenderIds>
           return op_state_->recvr_;
         }
         template <class Error>
-          void set_error(Error&& err, state_t expected) noexcept {
+          void set_error(Error&& err, when_all::state_t expected) noexcept {
             // TODO: _What memory orderings are actually needed here?
-            if (op_state_->state_.compare_exchange_strong(expected, error)) {
+            if (op_state_->state_.compare_exchange_strong(expected, when_all::error)) {
               op_state_->stop_source_.request_stop();
               // We won the race, free to write the error into the operation
               // state without worry.
@@ -128,12 +131,12 @@ template <class... SenderIds>
             if constexpr (sends_values<Traits>::value) {
               // We only need to bother recording the completion values
               // if we're not already in the "error" or "stopped" state.
-              if (op_state_->state_ == started) {
+              if (op_state_->state_ == when_all::started) {
                 try {
                   std::get<Index>(op_state_->values_).emplace(
                       (Values&&) vals...);
                 } catch(...) {
-                  set_error(std::current_exception(), started);
+                  set_error(std::current_exception(), when_all::started);
                 }
               }
             }
@@ -142,14 +145,14 @@ template <class... SenderIds>
         template <class Error>
             requires std::tag_invocable<std::execution::set_error_t, Receiver, Error>
           void set_error(Error&& err) && noexcept {
-            set_error((Error&&) err, started);
+            set_error((Error&&) err, when_all::started);
           }
         void set_stopped() && noexcept {
-          state_t expected = started;
+          when_all::state_t expected = when_all::started;
           // Transition to the "stopped" state if and only if we're in the
           // "started" state. (If this fails, it's because we're in an
           // error state, which trumps cancellation.)
-          if (op_state_->state_.compare_exchange_strong(expected, stopped)) {
+          if (op_state_->state_.compare_exchange_strong(expected, when_all::stopped)) {
             op_state_->stop_source_.request_stop();
           }
           op_state_->arrive();
@@ -165,7 +168,7 @@ template <class... SenderIds>
 
     template <class CvrefReceiverId>
       struct operation_t {
-        using WhenAll = std::__member_t<CvrefReceiverId, sender_t>;
+        using WhenAll = std::__member_t<CvrefReceiverId, when_all_sender_t>;
         using Receiver = std::__t<std::decay_t<CvrefReceiverId>>;
         using Env = std::execution::env_of_t<Receiver>;
         using CvrefEnv = std::__member_t<CvrefReceiverId, Env>;
@@ -197,7 +200,7 @@ template <class... SenderIds>
           on_stop_.reset();
           // All child operations have completed and arrived at the barrier.
           switch(state_.load(std::memory_order_relaxed)) {
-          case started:
+          case when_all::started:
             if constexpr (sends_values<Traits>::value) {
               // TODO stream sync instead?
               // TODO specialize when_all only when all senders are stream ones, then wait on them
@@ -228,12 +231,12 @@ template <class... SenderIds>
               );
             }
             break;
-          case error:
+          case when_all::error:
             std::visit([this](auto& err) noexcept {
                 std::execution::set_error((Receiver&&) recvr_, std::move(err));
             }, errors_);
             break;
-          case stopped:
+          case when_all::stopped:
             std::execution::set_stopped((Receiver&&) recvr_);
             break;
           default:
@@ -261,7 +264,7 @@ template <class... SenderIds>
           // register stop callback:
           self.on_stop_.emplace(
               std::execution::get_stop_token(std::execution::get_env(self.recvr_)),
-              on_stop_requested{self.stop_source_});
+              when_all::on_stop_requested{self.stop_source_});
           if (self.stop_source_.stop_requested()) {
             // Stop has already been requested. Don't bother starting
             // the child operations.
@@ -281,7 +284,7 @@ template <class... SenderIds>
               std::__q<std::tuple>,
               std::execution::__value_types_of_t<
                 std::__t<SenderIds>,
-                env_t<Env>,
+                when_all::env_t<Env>,
                 std::__mcompose<std::__q1<std::optional>, std::__q<std::execution::__decayed_tuple>>,
                 std::__single_or<void>>...>,
             std::__>;
@@ -290,21 +293,21 @@ template <class... SenderIds>
         Receiver recvr_;
         std::atomic<std::size_t> count_{sizeof...(SenderIds)};
         // Could be non-atomic here and atomic_ref everywhere except __completion_fn
-        std::atomic<state_t> state_{started};
-        std::execution::error_types_of_t<sender_t, env_t<Env>, std::execution::__variant> errors_{};
-        [[no_unique_address]] child_values_tuple_t values_{};
+        std::atomic<when_all::state_t> state_{when_all::started};
+        std::execution::error_types_of_t<when_all_sender_t, when_all::env_t<Env>, std::execution::__variant> errors_{};
+        child_values_tuple_t values_{};
         std::in_place_stop_source stop_source_{};
         std::optional<typename std::execution::stop_token_of_t<std::execution::env_of_t<Receiver>&>::template
-            callback_type<on_stop_requested>> on_stop_{};
+            callback_type<when_all::on_stop_requested>> on_stop_{};
       };
 
-    template <std::__decays_to<sender_t> Self, std::execution::receiver Receiver>
+    template <std::__decays_to<when_all_sender_t> Self, std::execution::receiver Receiver>
       friend auto tag_invoke(std::execution::connect_t, Self&& self, Receiver&& rcvr)
         -> operation_t<std::__member_t<Self, std::__x<std::decay_t<Receiver>>>> {
         return {(Self&&) self, (Receiver&&) rcvr};
       }
 
-    template <std::__decays_to<sender_t> Self, class Env>
+    template <std::__decays_to<when_all_sender_t> Self, class Env>
       friend auto tag_invoke(std::execution::get_completion_signatures_t, Self&&, Env)
         -> completion_sigs<std::__member_t<Self, Env>>;
 

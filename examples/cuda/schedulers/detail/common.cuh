@@ -19,9 +19,21 @@
 #include <type_traits>
 
 namespace example::cuda::stream {
+
+  struct scheduler_t;
+
   struct receiver_base_t {};
+
   struct operation_state_base_t {
     cudaStream_t stream_{0};
   };
+
+  template <class S>
+  concept stream_sender = 
+      std::execution::sender<S> &&
+      std::is_same_v<
+          std::tag_invoke_result_t<
+            std::execution::get_completion_scheduler_t<std::execution::set_value_t>, S>,
+          scheduler_t>;
 }
 
