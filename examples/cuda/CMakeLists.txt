@@ -25,7 +25,6 @@ if(CUDAToolkit_FOUND)
         file(TO_CMAKE_PATH "${example}" example_prefix)
         string(REPLACE "/" "." example_prefix "${example_prefix}")
         get_filename_component(example_name "${example_prefix}" NAME_WLE)
-        message("--> ${example_name}")
 
         add_executable(${example_name} ${example})
         target_link_libraries(${example_name} PRIVATE CUDASchedulers)
