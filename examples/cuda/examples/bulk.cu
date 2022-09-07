@@ -15,7 +15,7 @@
  */
 
 #include <execution.hpp>
-#include "schedulers/stream.hpp"
+#include "schedulers/stream.cuh"
 #include <thrust/device_vector.h>
 
 namespace ex = std::execution;

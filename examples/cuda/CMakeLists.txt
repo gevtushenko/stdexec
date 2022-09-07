@@ -1,14 +1,15 @@
 cmake_minimum_required(VERSION 3.17.0)
-project(CUDAExample CXX)
+project(CUDAExample CUDA)
 
 find_package(CUDAToolkit)
 
 if(CUDAToolkit_FOUND)
-    file(GLOB_RECURSE SCHED_SOURCES schedulers/*.hpp)
+    file(GLOB_RECURSE SCHED_SOURCES schedulers/*.cuh)
     add_library(CUDASchedulers INTERFACE ${SCHED_SOURCES})
     target_link_libraries(CUDASchedulers INTERFACE p2300 p2300_executable_flags CUDA::cudart)
     target_include_directories(CUDASchedulers INTERFACE ${CMAKE_CURRENT_SOURCE_DIR})
-    target_compile_options(CUDASchedulers INTERFACE -x cuda -Wno-unknown-cuda-version)
+    target_compile_options(CUDASchedulers INTERFACE -Wno-unknown-cuda-version)
+    target_compile_features(CUDASchedulers INTERFACE cxx_std_20)
 
     foreach(arch IN LISTS CMAKE_CUDA_ARCHITECTURES)
         target_compile_options(CUDASchedulers INTERFACE --cuda-gpu-arch=sm_${arch})
@@ -18,7 +19,7 @@ if(CUDAToolkit_FOUND)
     file(GLOB_RECURSE EXAMPLES
             RELATIVE "${CMAKE_CURRENT_LIST_DIR}"
             CONFIGURE_DEPENDS
-            examples/*.cpp)
+            examples/*.cu)
 
     foreach(example ${EXAMPLES})
         file(TO_CMAKE_PATH "${example}" example_prefix)

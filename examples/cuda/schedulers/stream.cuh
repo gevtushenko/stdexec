@@ -20,10 +20,10 @@
 
 #include <thrust/device_vector.h>
 
-#include "detail/common.hpp"
-#include "detail/then.hpp"
-#include "detail/bulk.hpp"
-#include "detail/when_all.hpp"
+#include "detail/common.cuh"
+#include "detail/then.cuh"
+#include "detail/bulk.cuh"
+#include "detail/when_all.cuh"
 
 namespace example::cuda::stream {
 

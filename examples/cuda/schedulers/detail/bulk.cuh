@@ -18,7 +18,7 @@
 #include <execution.hpp>
 #include <type_traits>
 
-#include "common.hpp"
+#include "common.cuh"
 
 namespace example::cuda::stream::bulk {
 

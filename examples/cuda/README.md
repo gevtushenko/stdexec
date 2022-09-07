@@ -14,6 +14,7 @@
 
 ### TO DO
 
+- [ ] Tests
 - [ ] NVHPC
 - [ ] Executing unknown senders on GPU
 

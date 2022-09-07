@@ -20,7 +20,7 @@
 
 #include <thrust/device_vector.h>
 
-#include "common.hpp"
+#include "common.cuh"
 
 namespace example::cuda::stream::then {
 
