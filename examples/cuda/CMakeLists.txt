@@ -5,14 +5,14 @@ find_package(CUDAToolkit)
 
 if(CUDAToolkit_FOUND)
     file(GLOB_RECURSE SCHED_SOURCES schedulers/*.cuh)
-    add_library(CUDASchedulers INTERFACE ${SCHED_SOURCES})
-    target_link_libraries(CUDASchedulers INTERFACE p2300 p2300_executable_flags CUDA::cudart)
-    target_include_directories(CUDASchedulers INTERFACE ${CMAKE_CURRENT_SOURCE_DIR})
-    target_compile_options(CUDASchedulers INTERFACE -Wno-unknown-cuda-version)
-    target_compile_features(CUDASchedulers INTERFACE cxx_std_20)
+    add_library(CUDASchedulers ${SCHED_SOURCES} examples/_clangd_helper_file.cu)
+    target_link_libraries(CUDASchedulers PUBLIC p2300 p2300_executable_flags CUDA::cudart)
+    target_include_directories(CUDASchedulers PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+    target_compile_options(CUDASchedulers PUBLIC -Wno-unknown-cuda-version)
+    target_compile_features(CUDASchedulers PUBLIC cxx_std_20)
 
     foreach(arch IN LISTS CMAKE_CUDA_ARCHITECTURES)
-        target_compile_options(CUDASchedulers INTERFACE --cuda-gpu-arch=sm_${arch})
+      target_compile_options(CUDASchedulers PUBLIC --cuda-gpu-arch=sm_${arch})
     endforeach()
 
     # Examples
