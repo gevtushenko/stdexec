@@ -64,6 +64,9 @@ namespace example::cuda::stream {
     template <std::execution::sender Sender, class Fun>
       using then_sender_t = then::sender_t<std::__x<std::remove_cvref_t<Sender>>, std::__x<std::remove_cvref_t<Fun>>>;
 
+    template <std::execution::sender... Senders>
+      using when_all_sender_t = example::cuda::stream::when_all::sender_t<std::__x<std::decay_t<Senders>>...>;
+
     template <std::execution::sender S, std::integral Shape, class Fn>
     friend bulk_sender_t<S, Shape, Fn>
     tag_invoke(std::execution::bulk_t, const scheduler_t& sch, S&& sndr, Shape shape, Fn fun) noexcept {
@@ -79,7 +82,7 @@ namespace example::cuda::stream {
     template <std::execution::sender... Senders>
     friend auto 
     tag_invoke(std::execution::transfer_when_all_t, const scheduler_t& sch, Senders&&... sndrs) noexcept {
-      return std::execution::transfer(example::cuda::stream::when_all::sender_t<std::__x<std::decay_t<Senders>>...>{(Senders&&)sndrs...}, sch);
+      return std::execution::transfer(when_all_sender_t<Senders...>{(Senders&&)sndrs...}, sch);
     }
 
     friend sender_t tag_invoke(std::execution::schedule_t, const scheduler_t&) noexcept {
