@@ -62,9 +62,12 @@ template <class ReceiverId, class Fun>
 
         std::execution::set_value(std::move(this->base()));
       } else {
+        cudaStream_t stream = op_state_.stream_;
+        // TODO Replace device vector with simple allocation (memcpy async?) 
+        // now thrust will not use the stream
         thrust::device_vector<result_t> result(1);
-        kernel_with_result<Fun, std::decay_t<As>...><<<1, 1>>>(f_, thrust::raw_pointer_cast(result.data()), as...);
-        cudaStreamSynchronize(0);
+        kernel_with_result<Fun, std::decay_t<As>...><<<1, 1, 0, stream>>>(f_, thrust::raw_pointer_cast(result.data()), as...);
+        cudaStreamSynchronize(stream);
         std::execution::set_value(std::move(this->base()), static_cast<result_t>(result[0]));
       }
     }
@@ -93,7 +96,7 @@ template <class SenderId, class ReceiverId, class Fun>
 
     operation_state_base_t& get_stream_provider() {
       if constexpr (std::is_base_of_v<operation_state_base_t, inner_op_state>) {
-        return inner_op_;
+        return inner_op_.get_stream_provider();
       }
 
       return *this;

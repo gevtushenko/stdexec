@@ -86,7 +86,7 @@ template <class SenderId, class ReceiverId, std::integral Shape, class Fun>
 
     operation_state_base_t& get_stream_provider() {
       if constexpr (std::is_base_of_v<operation_state_base_t, inner_op_state>) {
-        return inner_op_;
+        return inner_op_.get_stream_provider();
       }
 
       return *this;
