@@ -24,6 +24,8 @@
 #include "detail/then.cuh"
 #include "detail/bulk.cuh"
 #include "detail/when_all.cuh"
+#include "detail/upon_error.cuh"
+#include "detail/upon_stopped.cuh"
 
 namespace example::cuda::stream {
 
@@ -35,6 +37,12 @@ namespace example::cuda::stream {
 
   template <std::execution::sender... Senders>
     using when_all_sender_th = example::cuda::stream::when_all_sender_t<std::__x<std::decay_t<Senders>>...>;
+
+  template <std::execution::sender Sender, class Fun>
+    using upon_error_sender_th = upon_error_sender_t<std::__x<std::remove_cvref_t<Sender>>, std::__x<std::remove_cvref_t<Fun>>>;
+
+  template <std::execution::sender Sender, class Fun>
+    using upon_stopped_sender_th = upon_stopped_sender_t<std::__x<std::remove_cvref_t<Sender>>, std::__x<std::remove_cvref_t<Fun>>>;
 
   struct scheduler_t {
     template <class R_>
@@ -61,8 +69,9 @@ namespace example::cuda::stream {
           return {(R&&) rec};
         }
 
+      template <class CPO>
       friend scheduler_t
-      tag_invoke(std::execution::get_completion_scheduler_t<std::execution::set_value_t>, sender_t) noexcept {
+      tag_invoke(std::execution::get_completion_scheduler_t<CPO>, sender_t) noexcept {
         return {};
       }
     };
@@ -77,6 +86,18 @@ namespace example::cuda::stream {
     friend then_sender_th<S, Fn>
     tag_invoke(std::execution::then_t, const scheduler_t& sch, S&& sndr, Fn fun) noexcept {
       return then_sender_th<S, Fn>{(S&&) sndr, (Fn&&)fun};
+    }
+
+    template <std::execution::sender S, class Fn>
+    friend upon_error_sender_th<S, Fn>
+    tag_invoke(std::execution::upon_error_t, const scheduler_t& sch, S&& sndr, Fn fun) noexcept {
+      return upon_error_sender_th<S, Fn>{(S&&) sndr, (Fn&&)fun};
+    }
+
+    template <std::execution::sender S, class Fn>
+    friend upon_stopped_sender_th<S, Fn>
+    tag_invoke(std::execution::upon_stopped_t, const scheduler_t& sch, S&& sndr, Fn fun) noexcept {
+      return upon_stopped_sender_th<S, Fn>{(S&&) sndr, (Fn&&)fun};
     }
 
     template <std::execution::sender... Senders>

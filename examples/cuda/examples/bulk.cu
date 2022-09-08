@@ -75,6 +75,18 @@ int main() {
   }
 
   {
+    auto snd = ex::just_stopped() 
+             | ex::transfer(scheduler)
+             | ex::upon_stopped([] () { 
+                 if (is_on_gpu()) {
+                   std::printf("+\n");
+                 }
+               });
+    std::this_thread::sync_wait(std::move(snd));
+  }
+
+  if (0)
+  {
     const int n = 1024;
     thrust::device_vector<std::uint64_t> a(n, 10);
     thrust::device_vector<std::uint64_t> b(n);
