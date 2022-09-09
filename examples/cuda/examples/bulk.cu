@@ -79,10 +79,12 @@ int main() {
              | ex::transfer(scheduler)
              | ex::upon_stopped([] () { 
                  if (is_on_gpu()) {
-                   std::printf("+\n");
+                   std::printf("gpu\n");
                  }
                });
-    std::this_thread::sync_wait(std::move(snd));
+    std::execution::start_detached(std::move(snd));
+    std::printf("cpu\n");
+    cudaDeviceSynchronize();
   }
 
   if (0)

@@ -26,6 +26,8 @@
 #include "detail/when_all.cuh"
 #include "detail/upon_error.cuh"
 #include "detail/upon_stopped.cuh"
+#include "detail/start_detached.cuh"
+#include "detail/submit.cuh"
 
 namespace example::cuda::stream {
 
@@ -126,6 +128,11 @@ namespace example::cuda::stream {
 
     bool operator==(const scheduler_t&) const noexcept = default;
   };
+
+  template <stream_sender Sender>
+  void tag_invoke(std::execution::start_detached_t, Sender&& sndr) noexcept(false) {
+    submit::submit_t{}((Sender&&)sndr, start_detached::detached_receiver_t{});
+  }
 
   template <stream_sender... Senders>
   when_all_sender_th<Senders...>

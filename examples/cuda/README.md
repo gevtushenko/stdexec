@@ -14,7 +14,7 @@
 - [x] `upon_error`
 - [ ] `let_*`
 - [ ] `ensure_started`
-- [ ] `start_detached`
+- [x] `start_detached`
 
 ### TO DO
 
