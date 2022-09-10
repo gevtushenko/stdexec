@@ -8,12 +8,18 @@ if(CUDAToolkit_FOUND)
     add_library(CUDASchedulers ${SCHED_SOURCES} examples/_clangd_helper_file.cu schedulers/detail/_clangd_helper_file.cu)
     target_link_libraries(CUDASchedulers PUBLIC p2300 p2300_executable_flags CUDA::cudart)
     target_include_directories(CUDASchedulers PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
-    target_compile_options(CUDASchedulers PUBLIC -Wno-unknown-cuda-version)
     target_compile_features(CUDASchedulers PUBLIC cxx_std_20)
 
-    foreach(arch IN LISTS CMAKE_CUDA_ARCHITECTURES)
-      target_compile_options(CUDASchedulers PUBLIC --cuda-gpu-arch=sm_${arch})
-    endforeach()
+    if (CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
+      target_compile_options(CUDASchedulers PUBLIC -Wno-unknown-cuda-version)
+      foreach(arch IN LISTS CMAKE_CUDA_ARCHITECTURES)
+        target_compile_options(CUDASchedulers PUBLIC --cuda-gpu-arch=sm_${arch})
+      endforeach()
+    elseif (CMAKE_CXX_COMPILER_ID STREQUAL "NVCXX")
+      foreach(arch IN LISTS CMAKE_CUDA_ARCHITECTURES)
+        target_compile_options(CUDASchedulers PUBLIC -gpu=cc${arch})
+      endforeach()
+    endif()
 
     # Examples
     file(GLOB_RECURSE EXAMPLES
