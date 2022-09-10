@@ -53,8 +53,10 @@ template <class ReceiverId, class Fun>
       requires std::__callable<Fun, std::decay_t<As>...> {
       using result_t = std::decay_t<std::invoke_result_t<Fun, std::decay_t<As>...>>;
 
+      cudaStream_t stream = op_state_.stream_;
+
       if constexpr (std::is_same_v<void, result_t>) {
-        kernel<Fun, std::decay_t<As>...><<<1, 1, 0, op_state_.stream_>>>(f_, as...);
+        kernel<Fun, std::decay_t<As>...><<<1, 1, 0, stream>>>(f_, as...);
 
         if constexpr (!std::is_base_of_v<receiver_base_t, Receiver>) {
           cudaStreamSynchronize(op_state_.stream_);
@@ -63,13 +65,13 @@ template <class ReceiverId, class Fun>
         std::execution::set_value(std::move(this->base()));
       } else {
         result_t *d_result{};
-        cudaStream_t stream = op_state_.stream_;
         cudaMallocAsync(&d_result, sizeof(result_t), stream);
         kernel_with_result<Fun, std::decay_t<As>...><<<1, 1, 0, stream>>>(f_, d_result, as...);
 
         result_t h_result;
         cudaMemcpy(&h_result, d_result, sizeof(result_t), cudaMemcpyDeviceToHost);
         std::execution::set_value(std::move(this->base()), h_result);
+        cudaFreeAsync(d_result, stream);
       }
     }
 
