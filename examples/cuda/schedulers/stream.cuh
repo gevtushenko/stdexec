@@ -27,6 +27,7 @@
 #include "detail/upon_error.cuh"
 #include "detail/upon_stopped.cuh"
 #include "detail/start_detached.cuh"
+#include "detail/let_xxx.cuh"
 #include "detail/submit.cuh"
 
 namespace example::cuda::stream {
