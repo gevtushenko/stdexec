@@ -65,6 +65,7 @@ std::uint64_t fib(std::uint64_t n) {
 int main() {
   example::cuda::stream::scheduler_t scheduler{};
 
+  if (0)
   {
     auto snd = ex::schedule(scheduler) 
              | ex::let_value([] { 
@@ -81,7 +82,6 @@ int main() {
     std::this_thread::sync_wait(std::move(snd));
   }
 
-  if (0)
   {
     auto snd = ex::schedule(scheduler) 
              | ex::then([]() -> int { return 42; })

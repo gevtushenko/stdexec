@@ -25,10 +25,20 @@ namespace example::cuda::stream {
   struct receiver_base_t {};
 
   struct operation_state_base_t {
+    bool owner_{false};
     cudaStream_t stream_{0};
 
+    cudaStream_t allocate() {
+      if (stream_ == 0) {
+        owner_ = true;
+        cudaStreamCreate(&stream_);
+      }
+
+      return stream_;
+    }
+
     ~operation_state_base_t() {
-      if (stream_) {
+      if (owner_) {
         cudaStreamDestroy(stream_);
         stream_ = 0;
       }
@@ -55,10 +65,7 @@ namespace example::cuda::stream {
         if constexpr (std::is_base_of_v<operation_state_base_t, inner_op_state_t>) {
           stream = inner_op_.get_stream();
         } else {
-          if (stream_ == 0) {
-            cudaStreamCreate(&stream_);
-          }
-          stream = stream_;
+          stream = allocate();
         }
 
         return stream;
