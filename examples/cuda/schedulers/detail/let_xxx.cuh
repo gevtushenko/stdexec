@@ -25,6 +25,13 @@
 namespace _P2300::execution {
   namespace stream_let {
     namespace __impl {
+
+      template <class Fun, class ResultT, class... As>
+        __launch_bounds__(1) 
+        __global__ void kernel_with_result(Fun fn, ResultT* result, As... as) {
+          *result = fn(as...);
+        }
+
       template <class... _Ts>
         struct __as_tuple {
           __decayed_tuple<_Ts...> operator()(_Ts...) const;
@@ -61,12 +68,9 @@ namespace _P2300::execution {
 
       template <class _Fun>
         struct __applyable_fn {
-          #if _P2300_NVHPC()
           template <class... _As>
             __ operator()(_As&&...) const;
-          #else
-            __ operator()(auto&&...) const;
-          #endif
+
           template <class... _As>
               requires invocable<_Fun, _As...>
             std::invoke_result_t<_Fun, _As...> operator()(_As&&...) const {
@@ -93,18 +97,12 @@ namespace _P2300::execution {
       template <class _Sender, class _Receiver, class _Fun, class _SetTag>
           requires sender<_Sender, env_of_t<_Receiver>>
         struct __storage {
-          #if _P2300_NVHPC()
           template <class... _As>
             struct __op_state_for_ {
               using __t = connect_result_t<__result_sender_t<_Fun, _As...>, _Receiver>;
             };
           template <class... _As>
             using __op_state_for_t = __t<__op_state_for_<_As...>>;
-          #else
-          template <class... _As>
-            using __op_state_for_t =
-              connect_result_t<__result_sender_t<_Fun, _As...>, _Receiver>;
-          #endif
 
           // Compute a variant of tuples to hold all the values of the input
           // sender:
@@ -155,7 +153,6 @@ namespace _P2300::execution {
             using __which_tuple_t =
               __call_result_t<__which_tuple<_Sender, _Env, _Let>, _As...>;
 
-          #if _P2300_NVHPC()
           template <class... _As>
             struct __op_state_for_ {
               using __t =
@@ -164,11 +161,6 @@ namespace _P2300::execution {
           template <class... _As>
             using __op_state_for_t =
               __t<__op_state_for_<_As...>>;
-          #else
-          template <class... _As>
-            using __op_state_for_t =
-              connect_result_t<__result_sender_t<_Fun, _As...>, _Receiver>;
-          #endif
 
           // handle the case when let_error is used with an input sender that
           // never completes with set_error(exception_ptr)
@@ -186,11 +178,23 @@ namespace _P2300::execution {
               _NVCXX_EXPAND_PACK(_As, __as,
                 using __tuple_t = __which_tuple_t<_As...>;
                 using __op_state_t = __mapply<__q<__op_state_for_t>, __tuple_t>;
+
+                using result_sender_t = __result_sender_t<_Fun, std::decay_t<_As>...>;
+
+                cudaStream_t stream = 0; // TODO Wrap operation state
+
+                result_sender_t *d_result_sender{};
+                cudaMallocAsync(&d_result_sender, sizeof(result_sender_t), stream);
+                kernel_with_result<_Fun, std::decay_t<_As>...><<<1, 1, 0, stream>>>(__self.__op_state_->__fun_, d_result_sender, __as...);
+
+                result_sender_t h_result_sender;
+                cudaMemcpy(&h_result_sender, d_result_sender, sizeof(result_sender_t), cudaMemcpyDeviceToHost);
+
                 auto& __args =
                   __self.__op_state_->__storage_.__args_.template emplace<__tuple_t>((_As&&) __as...);
                 auto& __op = __self.__op_state_->__storage_.__op_state3_.template emplace<__op_state_t>(
                   __conv{[&] {
-                    return connect(std::apply(std::move(__self.__op_state_->__fun_), __args), std::move(__self).base());
+                    return connect(h_result_sender, std::move(__self).base());
                   }}
                 );
                 start(__op);
@@ -314,52 +318,7 @@ namespace _P2300::execution {
           _Sender __sndr_;
           _Fun __fun_;
         };
-
-      template <class _LetTag, class _SetTag>
-        struct __let_xxx_t {
-          using __t = _SetTag;
-          template <class _Sender, class _Fun>
-            using __sender = __impl::__sender<__x<remove_cvref_t<_Sender>>, __x<remove_cvref_t<_Fun>>, _LetTag>;
-
-          template <sender _Sender, __movable_value _Fun>
-            requires __tag_invocable_with_completion_scheduler<_LetTag, set_value_t, _Sender, _Fun>
-          sender auto operator()(_Sender&& __sndr, _Fun __fun) const
-            noexcept(nothrow_tag_invocable<_LetTag, __completion_scheduler_for<_Sender, set_value_t>, _Sender, _Fun>) {
-            auto __sched = get_completion_scheduler<set_value_t>(__sndr);
-            return tag_invoke(_LetTag{}, std::move(__sched), (_Sender&&) __sndr, (_Fun&&) __fun);
-          }
-          template <sender _Sender, __movable_value _Fun>
-            requires (!__tag_invocable_with_completion_scheduler<_LetTag, set_value_t, _Sender, _Fun>) &&
-              tag_invocable<_LetTag, _Sender, _Fun>
-          sender auto operator()(_Sender&& __sndr, _Fun __fun) const
-            noexcept(nothrow_tag_invocable<_LetTag, _Sender, _Fun>) {
-            return tag_invoke(_LetTag{}, (_Sender&&) __sndr, (_Fun&&) __fun);
-          }
-          template <sender _Sender, __movable_value _Fun>
-            requires (!__tag_invocable_with_completion_scheduler<_LetTag, set_value_t, _Sender, _Fun>) &&
-              (!tag_invocable<_LetTag, _Sender, _Fun>) &&
-              sender<__sender<_Sender, _Fun>>
-          __sender<_Sender, _Fun> operator()(_Sender&& __sndr, _Fun __fun) const {
-            return __sender<_Sender, _Fun>{(_Sender&&) __sndr, (_Fun&&) __fun};
-          }
-          template <class _Fun>
-          __binder_back<_LetTag, _Fun> operator()(_Fun __fun) const {
-            return {{}, {}, {(_Fun&&) __fun}};
-          }
-        };
     } // namespace __impl
-
-    struct let_value_t
-      : __let::__impl::__let_xxx_t<let_value_t, set_value_t>
-    {};
-
-    struct let_error_t
-      : __let::__impl::__let_xxx_t<let_error_t, set_error_t>
-    {};
-
-    struct let_stopped_t
-      : __let::__impl::__let_xxx_t<let_stopped_t, set_stopped_t>
-    {};
   } // namespace stream_let
 }
 

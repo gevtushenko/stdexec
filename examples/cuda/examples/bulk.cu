@@ -67,6 +67,23 @@ int main() {
 
   {
     auto snd = ex::schedule(scheduler) 
+             | ex::let_value([] { 
+                 if (is_on_gpu()) {
+                   std::printf("let on gpu\n");
+                 }
+                 return ex::just(42);
+               })
+             | ex::bulk(4, [](int idx, int val) {
+                 if (is_on_gpu()) {
+                   std::printf("bulk(%d) on gpu\n", idx);
+                 }
+               });
+    std::this_thread::sync_wait(std::move(snd));
+  }
+
+  if (0)
+  {
+    auto snd = ex::schedule(scheduler) 
              | ex::then([]() -> int { return 42; })
              | ex::bulk(4, printer_t{1})
              | ex::bulk(4, printer_t{2});
