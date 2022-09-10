@@ -26,10 +26,10 @@ namespace _P2300::execution {
   namespace stream_let {
     namespace __impl {
 
-      template <class Fun, class ResultT, class... As>
+      template <class Fun, class ResultSenderT, class... As>
         __launch_bounds__(1) 
-        __global__ void kernel_with_result(Fun fn, ResultT* result, As... as) {
-          *result = fn(as...);
+        __global__ void kernel_with_result(Fun fn, ResultSenderT* result, As... as) {
+          new (result) ResultSenderT(fn(as...));
         }
 
       template <class... _Ts>
@@ -183,18 +183,19 @@ namespace _P2300::execution {
 
                 cudaStream_t stream = 0; // TODO Wrap operation state
 
-                result_sender_t *d_result_sender{};
-                cudaMallocAsync(&d_result_sender, sizeof(result_sender_t), stream);
-                kernel_with_result<_Fun, std::decay_t<_As>...><<<1, 1, 0, stream>>>(__self.__op_state_->__fun_, d_result_sender, __as...);
-
-                result_sender_t h_result_sender;
-                cudaMemcpy(&h_result_sender, d_result_sender, sizeof(result_sender_t), cudaMemcpyDeviceToHost);
+                // TODO Gather maximum sender size
+                // TODO Allocate memory in the operation state
+                // TODO Remove allocation from here
+                result_sender_t *result_sender{};
+                cudaMallocHost(&result_sender, sizeof(result_sender_t));
+                kernel_with_result<_Fun, std::decay_t<_As>...><<<1, 1, 0, stream>>>(__self.__op_state_->__fun_, result_sender, __as...);
+                cudaStreamSynchronize(stream);
 
                 auto& __args =
                   __self.__op_state_->__storage_.__args_.template emplace<__tuple_t>((_As&&) __as...);
                 auto& __op = __self.__op_state_->__storage_.__op_state3_.template emplace<__op_state_t>(
                   __conv{[&] {
-                    return connect(h_result_sender, std::move(__self).base());
+                    return connect(*result_sender, std::move(__self).base());
                   }}
                 );
                 start(__op);
