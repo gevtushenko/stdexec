@@ -80,43 +80,6 @@ template <class ReceiverId, class Fun>
     {}
   };
 
-template <class SenderId, class ReceiverId, class Fun>
-  struct op_state_t : operation_state_base_t {
-    using Sender = std::__t<SenderId>;
-    using Receiver = std::__t<ReceiverId>;
-    using then_receiver_t = receiver_t<ReceiverId, Fun>;
-    using inner_op_state = std::execution::connect_result_t<Sender, then_receiver_t>;
-
-    inner_op_state inner_op_;
-
-    friend void tag_invoke(std::execution::start_t, op_state_t& op) noexcept {
-      cudaStreamCreate(&op.stream_);
-      std::execution::start(op.inner_op_);
-    }
-
-    operation_state_base_t& get_stream_provider() {
-      if constexpr (std::is_base_of_v<operation_state_base_t, inner_op_state>) {
-        return inner_op_.get_stream_provider();
-      }
-
-      return *this;
-    }
-
-    op_state_t(Fun fn, Sender&& sender, Receiver receiver)
-      : inner_op_{ 
-          std::execution::connect(
-              (Sender&&)sender, 
-              then_receiver_t((Receiver&&)receiver, fn, get_stream_provider())) } 
-    { }
-
-    ~op_state_t() {
-      if (stream_) {
-        cudaStreamDestroy(stream_);
-        stream_ = 0;
-      }
-    }
-  };
-
 }
 
 template <class SenderId, class FunId>
@@ -131,12 +94,8 @@ template <class SenderId, class FunId>
       std::execution::completion_signatures<
         std::execution::set_error_t(std::exception_ptr)>;
 
-    template <class Self, class Receiver>
-      using operation_state_t = 
-        then::op_state_t<
-          std::__x<std::__member_t<Self, Sender>>, 
-          std::__x<std::remove_cvref_t<Receiver>>, 
-          Fun>;
+    template <class Receiver>
+      using receiver_t = then::receiver_t<std::__x<Receiver>, Fun>;
 
     template <class Self, class Env>
       using completion_signatures =
@@ -153,9 +112,10 @@ template <class SenderId, class FunId>
     template <std::__decays_to<then_sender_t> Self, std::execution::receiver Receiver>
       requires std::execution::receiver_of<Receiver, completion_signatures<Self, std::execution::env_of_t<Receiver>>>
     friend auto tag_invoke(std::execution::connect_t, Self&& self, Receiver&& rcvr)
-      noexcept(std::is_nothrow_constructible_v<operation_state_t<Self, Receiver>, Fun, Sender, Receiver>) 
-      -> operation_state_t<Self, Receiver> {
-      return operation_state_t<Self, Receiver>(self.fun_, ((Self&&)self).sndr_, (Receiver&&)rcvr);
+      -> stream_op_state_t<std::__member_t<Self, Sender>, receiver_t<Receiver>> {
+        return stream_op_state<std::__member_t<Self, Sender>>(((Self&&)self).sndr_, [&](operation_state_base_t& stream_provider) -> receiver_t<Receiver> {
+          return receiver_t<Receiver>((Receiver&&)rcvr, self.fun_, stream_provider);
+        });
     }
 
     template <std::__decays_to<then_sender_t> Self, class Env>
