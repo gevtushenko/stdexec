@@ -107,7 +107,7 @@ template <class SenderId, class FunId>
             Fun, 
             std::__member_t<Self, Sender>, 
             Env>,
-          std::__q<std::execution::__completion_signatures::__default_set_value>,
+          std::__q<std::execution::__compl_sigs::__default_set_value>,
           std::__mbind_front_q<std::execution::__set_value_invoke_t, Fun>>;
 
     template <std::__decays_to<upon_error_sender_t> Self, std::execution::receiver Receiver>
