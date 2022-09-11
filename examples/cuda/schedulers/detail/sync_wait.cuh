@@ -66,6 +66,7 @@ namespace _P2300::this_thread {
         execution::run_loop* __loop_;
         template <class _Error>
         void __set_error(_Error __err) noexcept {
+          cudaDeviceSynchronize(); // TODO Synchronize stream
           if constexpr (__decays_to<_Error, std::exception_ptr>)
             __state_->__data_.template emplace<2>((_Error&&) __err);
           else if constexpr (__decays_to<_Error, std::error_code>)
@@ -78,6 +79,7 @@ namespace _P2300::this_thread {
           requires constructible_from<__sync_wait_result_t<_Sender2>, _As...>
         friend void tag_invoke(execution::set_value_t, __receiver&& __rcvr, _As&&... __as) noexcept try {
           _NVCXX_EXPAND_PACK(_As, __as,
+            cudaDeviceSynchronize(); // TODO Synchronize stream
             __rcvr.__state_->__data_.template emplace<1>((_As&&) __as...);
           )
           __rcvr.__loop_->finish();
@@ -86,9 +88,11 @@ namespace _P2300::this_thread {
         }
         template <class _Error>
         friend void tag_invoke(execution::set_error_t, __receiver&& __rcvr, _Error __err) noexcept {
+            cudaDeviceSynchronize(); // TODO Synchronize stream
           __rcvr.__set_error((_Error &&) __err);
         }
         friend void tag_invoke(execution::set_stopped_t __d, __receiver&& __rcvr) noexcept {
+            cudaDeviceSynchronize(); // TODO Synchronize stream
           __rcvr.__state_->__data_.template emplace<3>(__d);
           __rcvr.__loop_->finish();
         }

@@ -25,8 +25,8 @@ The behavior or stream context depending on the previous sender and next receive
 - [x] `let_error`
 - [x] `let_stopped`
 - [x] `schedule_from`
-- [ ] `transfer`
-- [ ] `sync_wait`
+- [x] `transfer`
+- [x] `sync_wait`
 - [ ] `ensure_started`
 - [x] `start_detached`
 

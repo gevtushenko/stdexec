@@ -37,7 +37,9 @@ template <class ReceiverId>
 
     template <class... As>
     void set_value(As&&... as) && noexcept {
-      // TODO Properly exit the GPU context
+      cudaStreamSynchronize(op_state_.stream_);
+
+      // TODO Copy data from GPU?
       std::execution::set_value(std::move(this->base()), (As&&)as...);
     }
 
