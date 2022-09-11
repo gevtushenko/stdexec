@@ -47,8 +47,8 @@ namespace example::cuda::stream {
   template <std::execution::sender Sender, class Fun>
     using upon_stopped_sender_th = upon_stopped_sender_t<std::__x<std::remove_cvref_t<Sender>>, std::__x<std::remove_cvref_t<Fun>>>;
 
-  template <std::execution::sender Sender, class Fun>
-    using let_value_th = _P2300::execution::stream_let::__impl::__sender<std::__x<std::remove_cvref_t<Sender>>, std::__x<std::remove_cvref_t<Fun>>, std::execution::let_value_t>;
+  template <class Let, std::execution::sender Sender, class Fun>
+    using let_value_th = _P2300::execution::stream_let::__impl::__sender<std::__x<std::remove_cvref_t<Sender>>, std::__x<std::remove_cvref_t<Fun>>, Let>;
 
   struct scheduler_t {
     template <class R_>
@@ -94,10 +94,10 @@ namespace example::cuda::stream {
       return then_sender_th<S, Fn>{(S&&) sndr, (Fn&&)fun};
     }
 
-    template <std::execution::sender S, class Fn>
-    friend let_value_th<S, Fn>
-    tag_invoke(std::execution::let_value_t, const scheduler_t& sch, S&& sndr, Fn fun) noexcept {
-      return let_value_th<S, Fn>{(S&&) sndr, (Fn&&)fun};
+    template <std::__one_of<std::execution::let_value_t, std::execution::let_stopped_t, std::execution::let_error_t> Let, std::execution::sender S, class Fn>
+    friend let_value_th<Let, S, Fn>
+    tag_invoke(Let, const scheduler_t& sch, S&& sndr, Fn fun) noexcept {
+      return let_value_th<Let, S, Fn>{(S&&) sndr, (Fn&&)fun};
     }
 
     template <std::execution::sender S, class Fn>

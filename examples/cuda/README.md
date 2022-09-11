@@ -12,7 +12,7 @@
 - [x] `transfer_just`
 - [x] `upon_stopped`
 - [x] `upon_error`
-- [ ] `let_*`
+- [x] `let_*`
 - [ ] `ensure_started`
 - [x] `start_detached`
 
