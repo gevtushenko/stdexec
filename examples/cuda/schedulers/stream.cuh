@@ -27,6 +27,7 @@
 #include "detail/upon_error.cuh"
 #include "detail/upon_stopped.cuh"
 #include "detail/start_detached.cuh"
+#include "detail/schedule_from.cuh"
 #include "detail/let_xxx.cuh"
 #include "detail/submit.cuh"
 
@@ -51,6 +52,9 @@ namespace example::cuda::stream {
     using let_value_th = _P2300::execution::stream_let::__impl::__sender<std::__x<std::remove_cvref_t<Sender>>, std::__x<std::remove_cvref_t<Fun>>, Let>;
 
   struct scheduler_t {
+    template <std::execution::sender Sender>
+      using schedule_from_sender_th = schedule_from_sender_t<scheduler_t, std::__x<std::remove_cvref_t<Sender>>>;
+
     template <class R_>
       struct operation_state_t {
         using R = std::__t<R_>;
@@ -81,6 +85,12 @@ namespace example::cuda::stream {
         return {};
       }
     };
+
+    template <std::execution::sender S>
+    friend schedule_from_sender_th<S>
+    tag_invoke(std::execution::schedule_from_t, const scheduler_t& sch, S&& sndr) noexcept {
+      return schedule_from_sender_th<S>{(S&&) sndr};
+    }
 
     template <std::execution::sender S, std::integral Shape, class Fn>
     friend bulk_sender_th<S, Shape, Fn>

@@ -1,5 +1,14 @@
 ## Stream
 
+The behavior or stream context depending on the previous sender and next receiver:
+
+| sender\receiver | stream                                                       | unknown                                                      |
+| --------------- | ------------------------------------------------------------ | ------------------------------------------------------------ |
+| stream          | launch a kernel asynchronously                               | pass out receiver into a separate kernel that's asynchronously launched after the sender's one |
+| unknown         | connect unknown sender with a receiver that puts data into a device memory stored in the operation state. Launch kernel reading from that memory in stream order. |                                                              |
+
+
+
 ### Supported senders
 
 - [x] `then`
@@ -12,13 +21,15 @@
 - [x] `transfer_just`
 - [x] `upon_stopped`
 - [x] `upon_error`
-- [x] `let_*`
+- [x] `let_value`
+- [x] `let_error`
+- [x] `let_stopped`
 - [ ] `ensure_started`
 - [x] `start_detached`
 
 ### TO DO
 
 - [ ] Tests
-- [ ] NVHPC
+- [x] NVHPC
 - [ ] Executing unknown senders on GPU
 
