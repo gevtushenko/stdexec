@@ -21,6 +21,18 @@ if(CUDAToolkit_FOUND)
       endforeach()
     endif()
 
+    # Tests
+    file(GLOB_RECURSE TEST_SOURCES
+            RELATIVE "${CMAKE_CURRENT_LIST_DIR}"
+            CONFIGURE_DEPENDS
+            test/*.cu)
+
+    add_executable(test.CUDA ${TEST_SOURCES})
+
+    target_include_directories(test.CUDA PRIVATE test)
+    target_link_libraries(test.CUDA CUDASchedulers Catch2::Catch2)
+    catch_discover_tests(test.CUDA)
+
     # Examples
     file(GLOB_RECURSE EXAMPLES
             RELATIVE "${CMAKE_CURRENT_LIST_DIR}"
