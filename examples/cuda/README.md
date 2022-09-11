@@ -9,7 +9,7 @@ The behavior or stream context depending on the previous sender and next receive
 
 
 
-### Supported senders
+### Supported
 
 - [x] `then`
 - [x] `bulk`
@@ -24,6 +24,9 @@ The behavior or stream context depending on the previous sender and next receive
 - [x] `let_value`
 - [x] `let_error`
 - [x] `let_stopped`
+- [x] `schedule_from`
+- [ ] `transfer`
+- [ ] `sync_wait`
 - [ ] `ensure_started`
 - [x] `start_detached`
 

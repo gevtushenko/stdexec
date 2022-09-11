@@ -15,21 +15,22 @@
  */
 #pragma once
 
+#include <thrust/device_vector.h>
+
 #include <execution.hpp>
 #include <type_traits>
 
-#include <thrust/device_vector.h>
-
-#include "detail/common.cuh"
-#include "detail/then.cuh"
 #include "detail/bulk.cuh"
-#include "detail/when_all.cuh"
+#include "detail/common.cuh"
+#include "detail/let_xxx.cuh"
+#include "detail/schedule_from.cuh"
+#include "detail/start_detached.cuh"
+#include "detail/submit.cuh"
+#include "detail/then.cuh"
+#include "detail/transfer.cuh"
 #include "detail/upon_error.cuh"
 #include "detail/upon_stopped.cuh"
-#include "detail/start_detached.cuh"
-#include "detail/schedule_from.cuh"
-#include "detail/let_xxx.cuh"
-#include "detail/submit.cuh"
+#include "detail/when_all.cuh"
 
 namespace example::cuda::stream {
 
@@ -50,6 +51,9 @@ namespace example::cuda::stream {
 
   template <class Let, std::execution::sender Sender, class Fun>
     using let_value_th = _P2300::execution::stream_let::__impl::__sender<std::__x<std::remove_cvref_t<Sender>>, std::__x<std::remove_cvref_t<Fun>>, Let>;
+
+  template <std::execution::sender Sender>
+    using transfer_sender_th = example::cuda::stream::transfer_sender_t<std::__x<Sender>>;
 
   struct scheduler_t {
     template <std::execution::sender Sender>
@@ -136,6 +140,12 @@ namespace example::cuda::stream {
       return std::execution::transfer(
           when_all_sender_th<std::tag_invoke_result_t<std::execution::__into_variant_t, Senders>...>{
             std::execution::into_variant((Senders&&)sndrs)...}, sch);
+    }
+
+    template <std::execution::sender S, std::execution::scheduler Sch>
+    friend auto
+    tag_invoke(std::execution::transfer_t, const scheduler_t& sch, S&& sndr, Sch&& scheduler) noexcept {
+      return std::execution::schedule_from((Sch&&)sch, transfer_sender_th<S>{(S&&) sndr});
     }
 
     friend sender_t tag_invoke(std::execution::schedule_t, const scheduler_t&) noexcept {
