@@ -200,7 +200,7 @@ namespace _P2300::execution {
 
                 using result_sender_t = __result_sender_t<_Fun, std::decay_t<_As>...>;
 
-                cudaStream_t stream = 0; // TODO Wrap operation state
+                cudaStream_t stream = __self.__op_state_->stream_;
 
                 auto result_sender = reinterpret_cast<result_sender_t *>(__self.__op_state_->__sender_memory_.get());
                 kernel_with_result<_Fun, std::decay_t<_As>...><<<1, 1, 0, stream>>>(__self.__op_state_->__fun_, result_sender, __as...);
@@ -243,30 +243,38 @@ namespace _P2300::execution {
       }
 
       template <class _SenderId, class _ReceiverId, class _FunId, class _Let>
-        struct __operation {
+        using __operation_base = 
+          example::cuda::stream::detail::operation_state_t<_SenderId, std::__x<__receiver<_SenderId, _ReceiverId, _FunId, _Let>>>;
+
+      template <class _SenderId, class _ReceiverId, class _FunId, class _Let>
+        struct __operation : __operation_base<_SenderId, _ReceiverId, _FunId, _Let> {
           using _Sender = __t<_SenderId>;
           using _Receiver = __t<_ReceiverId>;
           using _Fun = __t<_FunId>;
           using __receiver_t = __receiver<_SenderId, _ReceiverId, _FunId, _Let>;
 
           friend void tag_invoke(start_t, __operation& __self) noexcept {
+            // TODO Check allocation errors
             std::uint8_t *sender_memory{};
             cudaMallocManaged(&sender_memory, std::__v<__max_sender_size<_Sender, _Receiver, _Fun, _Let>>);
             __self.__sender_memory_.reset(sender_memory);
 
-            start(__self.__op_state2_);
+            start(__self.inner_op_);
           }
 
           template <class _Receiver2>
             __operation(_Sender&& __sndr, _Receiver2&& __rcvr, _Fun __fun)
-              : __op_state2_(connect((_Sender&&) __sndr, __receiver_t{this}))
+              : __operation_base<_SenderId, _ReceiverId, _FunId, _Let>(
+                  (_Sender&&) __sndr, 
+                  [this] (example::cuda::stream::operation_state_base_t&) -> __receiver_t {
+                    return __receiver_t{this};
+                  })
               , __rcvr_((_Receiver2&&) __rcvr)
               , __fun_((_Fun&&) __fun)
               , __sender_memory_(nullptr, cuda_deleter)
             {}
           _P2300_IMMOVABLE(__operation);
 
-          connect_result_t<_Sender, __receiver_t> __op_state2_;
           _Receiver __rcvr_;
           _Fun __fun_;
           __storage<_Sender, _Receiver, _Fun, _Let> __storage_;
