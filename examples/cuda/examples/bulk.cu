@@ -19,31 +19,7 @@
 #include <thrust/device_vector.h>
 
 namespace ex = std::execution;
-
-enum class device_type {
-  host,
-  device
-};
-
-#ifdef _NVHPC_CUDA
-#include <nv/target>
-
-__host__ __device__ inline device_type get_device_type() {
-  if target (nv::target::is_host) {
-    return device_type::host;
-  }
-  else {
-    return device_type::device;
-  }
-}
-#elif defined(__clang__) && defined(__CUDA__)
-__host__ inline device_type get_device_type() { return device_type::host; }
-__device__ inline device_type get_device_type() { return device_type::device; }
-#endif
-
-inline __host__ __device__ bool is_on_gpu() {
-  return get_device_type() == device_type::device;
-}
+using example::cuda::is_on_gpu;
 
 struct printer_t {
   int val_;

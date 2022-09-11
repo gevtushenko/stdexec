@@ -236,7 +236,7 @@ namespace _P2300::execution {
           __operation<_SenderId, _ReceiverId, _FunId, _Let>* __op_state_;
         };
 
-      void cuda_deleter(std::uint8_t *ptr) {
+      inline void cuda_deleter(std::uint8_t *ptr) {
         if (ptr) {
           cudaFree(ptr);
         }
