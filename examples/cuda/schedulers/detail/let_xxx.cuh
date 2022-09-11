@@ -37,6 +37,11 @@ namespace _P2300::execution {
           __decayed_tuple<_Ts...> operator()(_Ts...) const;
         };
 
+      template <class... Sizes>
+        struct max_in_pack {
+          static constexpr std::size_t value = std::max({std::size_t{}, std::__v<Sizes>...});
+        };
+
       template <class _SenderId, class _ReceiverId, class _FunId, class _Let>
         struct __receiver;
 
@@ -116,6 +121,20 @@ namespace _P2300::execution {
           __op_state3_t __op_state3_;
         };
 
+      template <class _Sender, class _Receiver, class _Fun, class _SetTag>
+          requires sender<_Sender, env_of_t<_Receiver>>
+        struct __max_sender_size {
+          template <class... _As>
+            struct __sender_size_for_ {
+              using __t = __index<sizeof(__result_sender_t<_Fun, _As...>)>;
+            };
+          template <class... _As>
+            using __sender_size_for_t = __t<__sender_size_for_<_As...>>;
+
+          static constexpr std::size_t value =
+            __v<__gather_sigs_t<_SetTag, _Sender, env_of_t<_Receiver>, __q<__sender_size_for_t>, __q<max_in_pack>>>;
+        };
+
       template <class _Env, class _Fun, class _Set, class _Sig>
         struct __tfx_signal_impl {};
 
@@ -183,11 +202,7 @@ namespace _P2300::execution {
 
                 cudaStream_t stream = 0; // TODO Wrap operation state
 
-                // TODO Gather maximum sender size
-                // TODO Allocate memory in the operation state
-                // TODO Remove allocation from here
-                result_sender_t *result_sender{};
-                cudaMallocHost(&result_sender, sizeof(result_sender_t));
+                auto result_sender = reinterpret_cast<result_sender_t *>(__self.__op_state_->__sender_memory_.get());
                 kernel_with_result<_Fun, std::decay_t<_As>...><<<1, 1, 0, stream>>>(__self.__op_state_->__fun_, result_sender, __as...);
                 cudaStreamSynchronize(stream);
 
@@ -221,6 +236,12 @@ namespace _P2300::execution {
           __operation<_SenderId, _ReceiverId, _FunId, _Let>* __op_state_;
         };
 
+      void cuda_deleter(std::uint8_t *ptr) {
+        if (ptr) {
+          cudaFree(ptr);
+        }
+      }
+
       template <class _SenderId, class _ReceiverId, class _FunId, class _Let>
         struct __operation {
           using _Sender = __t<_SenderId>;
@@ -229,6 +250,10 @@ namespace _P2300::execution {
           using __receiver_t = __receiver<_SenderId, _ReceiverId, _FunId, _Let>;
 
           friend void tag_invoke(start_t, __operation& __self) noexcept {
+            std::uint8_t *sender_memory{};
+            cudaMallocManaged(&sender_memory, std::__v<__max_sender_size<_Sender, _Receiver, _Fun, _Let>>);
+            __self.__sender_memory_.reset(sender_memory);
+
             start(__self.__op_state2_);
           }
 
@@ -237,13 +262,15 @@ namespace _P2300::execution {
               : __op_state2_(connect((_Sender&&) __sndr, __receiver_t{this}))
               , __rcvr_((_Receiver2&&) __rcvr)
               , __fun_((_Fun&&) __fun)
+              , __sender_memory_(nullptr, cuda_deleter)
             {}
           _P2300_IMMOVABLE(__operation);
 
           connect_result_t<_Sender, __receiver_t> __op_state2_;
           _Receiver __rcvr_;
           _Fun __fun_;
-          [[no_unique_address]] __storage<_Sender, _Receiver, _Fun, _Let> __storage_;
+          __storage<_Sender, _Receiver, _Fun, _Let> __storage_;
+          std::unique_ptr<std::uint8_t[], void(*)(std::uint8_t*)> __sender_memory_;
         };
 
       template <class _SenderId, class _FunId, class _SetId>
