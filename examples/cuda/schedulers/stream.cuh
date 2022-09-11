@@ -60,6 +60,8 @@ namespace example::cuda::stream {
         using R = std::__t<R_>;
         [[no_unique_address]] R rec_;
         friend void tag_invoke(std::execution::start_t, operation_state_t& op) noexcept try {
+          // TODO Wrap random receiver so it's completed on GPU:
+          // `transfer(stream) | a_sender`
           std::execution::set_value((R&&) op.rec_);
         } catch(...) {
           std::execution::set_error((R&&) op.rec_, std::current_exception());

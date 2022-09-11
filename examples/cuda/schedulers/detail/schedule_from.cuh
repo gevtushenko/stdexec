@@ -37,7 +37,8 @@ template <class ReceiverId>
 
     template <class... As>
     void set_value(As&&... as) && noexcept {
-      // TODO Wrap random receiver
+      // TODO Wrap random receiver so it's completed on GPU:
+      // `transfer(stream) | a_sender`
       std::execution::set_value(std::move(this->base()), (As&&)as...);
     }
 
