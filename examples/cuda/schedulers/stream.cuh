@@ -30,6 +30,7 @@
 #include "detail/transfer.cuh"
 #include "detail/upon_error.cuh"
 #include "detail/upon_stopped.cuh"
+#include "detail/sync_wait.cuh"
 #include "detail/when_all.cuh"
 
 namespace example::cuda::stream {
@@ -147,6 +148,12 @@ namespace example::cuda::stream {
     tag_invoke(std::execution::transfer_t, const scheduler_t& /* sch */, S&& sndr, Sch&& scheduler) noexcept {
       static_assert(std::execution::sender<transfer_sender_th<S>>);
       return std::execution::schedule_from((Sch&&)scheduler, transfer_sender_th<S>{(S&&) sndr});
+    }
+
+    template <std::execution::sender S>
+    friend auto
+    tag_invoke(std::this_thread::sync_wait_t, const scheduler_t& /* sch */, S&& sndr) noexcept {
+      return sync_wait::impl((S&&)sndr);
     }
 
     friend sender_t tag_invoke(std::execution::schedule_t, const scheduler_t&) noexcept {
