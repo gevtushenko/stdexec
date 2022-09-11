@@ -144,8 +144,9 @@ namespace example::cuda::stream {
 
     template <std::execution::sender S, std::execution::scheduler Sch>
     friend auto
-    tag_invoke(std::execution::transfer_t, const scheduler_t& sch, S&& sndr, Sch&& scheduler) noexcept {
-      return std::execution::schedule_from((Sch&&)sch, transfer_sender_th<S>{(S&&) sndr});
+    tag_invoke(std::execution::transfer_t, const scheduler_t& /* sch */, S&& sndr, Sch&& scheduler) noexcept {
+      static_assert(std::execution::sender<transfer_sender_th<S>>);
+      return std::execution::schedule_from((Sch&&)scheduler, transfer_sender_th<S>{(S&&) sndr});
     }
 
     friend sender_t tag_invoke(std::execution::schedule_t, const scheduler_t&) noexcept {

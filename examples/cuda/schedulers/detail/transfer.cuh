@@ -76,7 +76,7 @@ template <class SenderId>
       friend auto tag_invoke(std::execution::get_completion_signatures_t, _Self&&, _Env) ->
         std::execution::make_completion_signatures<
           std::__member_t<_Self, Sender>,
-          _Env>;
+          _Env> requires true;
 
     template <std::execution::tag_category<std::execution::forwarding_sender_query> Tag, class... As>
       requires std::__callable<Tag, const Sender&, As...>
