@@ -31,6 +31,8 @@ CompileFlags:
   Remove:
     # strip CUDA fatbin args
     - "-Xfatbin*"
+    - "-gpu=*"
+    - "--diag_suppress*"
     # strip CUDA arch flags
     - "-gencode*"
     - "--generate-code*"
