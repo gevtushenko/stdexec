@@ -53,6 +53,8 @@ namespace example::cuda::stream {
 
   struct receiver_base_t {};
 
+  struct sender_base_t {};
+
   struct operation_state_base_t {
     bool owner_{false};
     cudaStream_t stream_{0};

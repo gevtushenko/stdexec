@@ -38,6 +38,17 @@ template <class Fun, class ResultT, class... As>
     *result = fn(as...);
   }
 
+template <class Fun, class Receiver, class... As>
+  __launch_bounds__(1) 
+  __global__ void kernel_with_a_reciever(Fun fn, Receiver receiver, As... as) {
+    if constexpr (std::is_same_v<std::invoke_result_t<Fun, As...>, void>) {
+      fn(as...);
+      std::execution::set_value((Receiver&&)receiver);
+    } else {
+      std::execution::set_value(std::move(receiver), fn(as...));
+    }
+  }
+
 template <class ReceiverId, class Fun>
   class receiver_t
     : std::execution::receiver_adaptor<receiver_t<ReceiverId, Fun>, std::__t<ReceiverId>>
@@ -55,23 +66,27 @@ template <class ReceiverId, class Fun>
 
       cudaStream_t stream = op_state_.stream_;
 
-      if constexpr (std::is_same_v<void, result_t>) {
-        kernel<Fun, std::decay_t<As>...><<<1, 1, 0, stream>>>(f_, as...);
+      if constexpr (std::is_base_of_v<receiver_base_t, Receiver>) {
+        if constexpr (std::is_same_v<void, result_t>) {
+          kernel<Fun, std::decay_t<As>...><<<1, 1, 0, stream>>>(f_, as...);
 
-        if constexpr (!std::is_base_of_v<receiver_base_t, Receiver>) {
-          cudaStreamSynchronize(op_state_.stream_);
+          if constexpr (!std::is_base_of_v<receiver_base_t, Receiver>) {
+            cudaStreamSynchronize(op_state_.stream_);
+          }
+
+          std::execution::set_value(std::move(this->base()));
+        } else {
+          result_t *d_result{};
+          cudaMallocAsync(&d_result, sizeof(result_t), stream);
+          kernel_with_result<Fun, std::decay_t<As>...><<<1, 1, 0, stream>>>(f_, d_result, as...);
+
+          result_t h_result;
+          cudaMemcpy(&h_result, d_result, sizeof(result_t), cudaMemcpyDeviceToHost);
+          std::execution::set_value(std::move(this->base()), h_result);
+          cudaFreeAsync(d_result, stream);
         }
-
-        std::execution::set_value(std::move(this->base()));
       } else {
-        result_t *d_result{};
-        cudaMallocAsync(&d_result, sizeof(result_t), stream);
-        kernel_with_result<Fun, std::decay_t<As>...><<<1, 1, 0, stream>>>(f_, d_result, as...);
-
-        result_t h_result;
-        cudaMemcpy(&h_result, d_result, sizeof(result_t), cudaMemcpyDeviceToHost);
-        std::execution::set_value(std::move(this->base()), h_result);
-        cudaFreeAsync(d_result, stream);
+        kernel_with_a_reciever<Fun, std::decay_t<Receiver>, std::decay_t<As>...><<<1, 1, 0, stream>>>(f_, this->base(), as...);
       }
     }
 
@@ -86,7 +101,7 @@ template <class ReceiverId, class Fun>
 }
 
 template <class SenderId, class FunId>
-  struct then_sender_t {
+  struct then_sender_t : sender_base_t {
     using Sender = std::__t<SenderId>;
     using Fun = std::__t<FunId>;
 

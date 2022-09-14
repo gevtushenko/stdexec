@@ -73,7 +73,7 @@ template <class ReceiverId, std::integral Shape, class Fun>
 }
 
 template <class SenderId, std::integral Shape, class FunId>
-  struct bulk_sender_t {
+  struct bulk_sender_t : sender_base_t {
     using Sender = std::__t<SenderId>;
     using Fun = std::__t<FunId>;
 

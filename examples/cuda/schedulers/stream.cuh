@@ -102,13 +102,13 @@ namespace example::cuda::stream {
     template <std::execution::sender S, std::integral Shape, class Fn>
     friend bulk_sender_th<S, Shape, Fn>
     tag_invoke(std::execution::bulk_t, const scheduler_t& sch, S&& sndr, Shape shape, Fn fun) noexcept {
-      return bulk_sender_th<S, Shape, Fn>{(S&&) sndr, shape, (Fn&&)fun};
+      return bulk_sender_th<S, Shape, Fn>{{}, (S&&) sndr, shape, (Fn&&)fun};
     }
 
     template <std::execution::sender S, class Fn>
     friend then_sender_th<S, Fn>
     tag_invoke(std::execution::then_t, const scheduler_t& sch, S&& sndr, Fn fun) noexcept {
-      return then_sender_th<S, Fn>{(S&&) sndr, (Fn&&)fun};
+      return then_sender_th<S, Fn>{{}, (S&&) sndr, (Fn&&)fun};
     }
 
     template <std::__one_of<std::execution::let_value_t, std::execution::let_stopped_t, std::execution::let_error_t> Let, std::execution::sender S, class Fn>

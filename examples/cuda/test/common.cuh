@@ -106,6 +106,7 @@ namespace detail {
         using result_t = std::invoke_result_t<Fun, As&&...>;
 
         if constexpr (std::is_same_v<void, result_t>) {
+          f_((As&&)as...);
           std::execution::set_value(std::move(this->base()));
         } else {
           std::execution::set_value(std::move(this->base()), f_((As&&)as...));

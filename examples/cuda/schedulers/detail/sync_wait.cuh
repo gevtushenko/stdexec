@@ -102,6 +102,31 @@ namespace _P2300::this_thread {
         }
       };
 
+    struct __sink_receiver : example::cuda::stream::receiver_base_t {
+      template <class _Error>
+      void __set_error(_Error __err) noexcept {
+        // TODO
+      }
+      template <class... _As _NVCXX_CAPTURE_PACK(_As)>
+      friend void tag_invoke(execution::set_value_t, __sink_receiver&& __rcvr, _As&&... __as) noexcept try {
+        _NVCXX_EXPAND_PACK(_As, __as,
+          // TODO
+        )
+      } catch(...) {
+      }
+      template <class _Error>
+      friend void tag_invoke(execution::set_error_t, __sink_receiver&& __rcvr, _Error __err) noexcept {
+        // TODO
+      }
+      friend void tag_invoke(execution::set_stopped_t __d, __sink_receiver&& __rcvr) noexcept {
+        // TODO
+      }
+      friend std::execution::__empty_env
+      tag_invoke(execution::get_env_t, const __sink_receiver& __rcvr) noexcept {
+        return {};
+      }
+    };
+
     template <class _SenderId>
       struct __state {
         using _Tuple = __sync_wait_result_t<__t<_SenderId>>;
@@ -126,12 +151,22 @@ template <std::execution::__single_value_variant_sender<_P2300::this_thread::str
 
   // Launch the sender with a continuation that will fill in a variant
   // and notify a condition variable.
-  auto __op_state = std::execution::connect(
-      (_Sender &&) __sndr, _P2300::this_thread::stream_sync_wait::__receiver<std::__x<_Sender>>{{}, &__state, &__loop});
-  std::execution::start(__op_state); 
+  if constexpr (std::is_base_of_v<sender_base_t, _Sender>) {
+    auto __op_state = std::execution::connect(
+        (_Sender &&) __sndr, _P2300::this_thread::stream_sync_wait::__receiver<std::__x<_Sender>>{{}, &__state, &__loop});
+    std::execution::start(__op_state); 
 
-  // Wait for the variant to be filled in.
-  __loop.run();
+    // Wait for the variant to be filled in.
+    __loop.run();
+  } else {
+    auto __op_state = std::execution::connect(
+        (_Sender &&) __sndr, _P2300::this_thread::stream_sync_wait::__sink_receiver{});
+    std::execution::start(__op_state); 
+
+    // TODO Doesn't work as intended, just for experiments
+    cudaDeviceSynchronize();
+    __state.__data_.template emplace<1>();
+  }
 
   if (__state.__data_.index() == 2) {
     std::rethrow_exception(std::get<2>(__state.__data_));
