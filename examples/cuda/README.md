@@ -1,13 +1,14 @@
-## Stream
+### Idea
 
-The behavior or stream context depending on the previous sender and next receiver:
+When `a_sender` precedes `stream_sender` in the pipeline `a_sender | stream_sender`, operation state produced by connecting `stream_sender` with `out_reciever` represents a task in the task queue. The queue is managed by a dedicated thread that polls on the queue using something similar to the run loop. The `a_sender` is connected with a `sink_receiver` that has a pointer to the mentioned operation state and the queue. When `a_receiver` completes on `sink_receiver`, it enqueues operation state in the queue.  When task is executed, it completes on the `stream_receiver` which enqueues more work and completes on `out_receiver`.
 
-| sender\receiver | stream                                                       | unknown                                                      |
-| --------------- | ------------------------------------------------------------ | ------------------------------------------------------------ |
-| stream          | launch a kernel asynchronously                               | pass out receiver into a separate kernel that's asynchronously launched after the sender's one |
-| unknown         | connect unknown sender with a receiver that puts data into a device memory stored in the operation state. Launch kernel reading from that memory in stream order. |                                                              |
+When `stream_sender` precedes another `stream_sender` in the pipeline `stream_sender | stream_sender`, first `stream_receiver` executes work on GPU and then completes on the successor `stream_receiver` on CPU. 
 
+### Building blocks
 
+- [ ] GPU/CPU task queue
+- [ ] Emplacement into `variant` from GPU
+- [ ] Emplacement into `tuple` from GPU
 
 ### Supported
 
