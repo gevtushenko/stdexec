@@ -4,6 +4,10 @@ project(CUDAExample CUDA)
 find_package(CUDAToolkit)
 
 if(CUDAToolkit_FOUND)
+    set(CMAKE_CUDA_RESOLVE_DEVICE_SYMBOLS ON)
+    set(CMAKE_CUDA_SEPARABLE_COMPILATION ON)
+    set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+
     file(GLOB_RECURSE SCHED_SOURCES schedulers/*.cuh)
     add_library(CUDASchedulers ${SCHED_SOURCES} examples/_clangd_helper_file.cu schedulers/detail/_clangd_helper_file.cu)
     target_link_libraries(CUDASchedulers PUBLIC p2300 p2300_executable_flags CUDA::cudart)

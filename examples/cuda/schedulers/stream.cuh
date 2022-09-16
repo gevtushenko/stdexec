@@ -35,6 +35,16 @@
 
 namespace example::cuda::stream {
 
+  namespace detail {
+
+    template <class Receiver>
+    __launch_bounds__(1)
+    __global__ void kernel(Receiver receiver) {
+      std::execution::set_value(std::move(receiver));
+    }
+
+  }
+
   template <std::execution::sender Sender, std::integral Shape, class Fun>
     using bulk_sender_th = bulk_sender_t<std::__x<std::remove_cvref_t<Sender>>, Shape, std::__x<std::remove_cvref_t<Fun>>>;
 
@@ -63,13 +73,11 @@ namespace example::cuda::stream {
     template <class R_>
       struct operation_state_t {
         using R = std::__t<R_>;
-        [[no_unique_address]] R rec_;
-        friend void tag_invoke(std::execution::start_t, operation_state_t& op) noexcept try {
-          // TODO Wrap random receiver so it's completed on GPU:
-          // `transfer(stream) | a_sender`
-          std::execution::set_value((R&&) op.rec_);
-        } catch(...) {
-          std::execution::set_error((R&&) op.rec_, std::current_exception());
+
+        R rec_;
+
+        friend void tag_invoke(std::execution::start_t, operation_state_t& op) noexcept {
+          detail::kernel<std::decay_t<R>><<<1, 1>>>(op.rec_);
         }
       };
 
@@ -105,11 +113,13 @@ namespace example::cuda::stream {
       return bulk_sender_th<S, Shape, Fn>{{}, (S&&) sndr, shape, (Fn&&)fun};
     }
 
+    /*
     template <std::execution::sender S, class Fn>
     friend then_sender_th<S, Fn>
     tag_invoke(std::execution::then_t, const scheduler_t& sch, S&& sndr, Fn fun) noexcept {
       return then_sender_th<S, Fn>{{}, (S&&) sndr, (Fn&&)fun};
     }
+    */
 
     template <std::__one_of<std::execution::let_value_t, std::execution::let_stopped_t, std::execution::let_error_t> Let, std::execution::sender S, class Fn>
     friend let_value_th<Let, S, Fn>

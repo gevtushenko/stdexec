@@ -18,6 +18,8 @@
 #include <execution.hpp>
 #include <type_traits>
 
+#include <thrust/system/cuda/detail/core/triple_chevron_launch.h>
+
 #include "common.cuh"
 
 namespace example::cuda::stream {
@@ -26,12 +28,18 @@ namespace bulk {
 
 template <int BlockThreads, std::integral Shape, class Fun, class... As>
   __launch_bounds__(BlockThreads) 
-  __global__ void kernel(Shape shape, Fun fn, As... as) {
+  __global__ void bulk_kernel(Shape shape, Fun fn, As... as) {
     const int tid = static_cast<int>(threadIdx.x + blockIdx.x * blockDim.x);
 
     if (tid < static_cast<int>(shape)) {
       fn(tid, as...);
     }
+  }
+
+template <class Receiver, class... As>
+  __launch_bounds__(1)
+  __global__ void continuation_kernel(Receiver receiver, As... as) {
+    std::execution::set_value(std::move(receiver), std::move(as)...);
   }
 
 template <class ReceiverId, std::integral Shape, class Fun>
@@ -52,13 +60,14 @@ template <class ReceiverId, std::integral Shape, class Fun>
 
       constexpr int block_threads = 256;
       const int grid_blocks = (static_cast<int>(shape_) + block_threads - 1) / block_threads;
-      kernel<block_threads, Shape, Fun, std::decay_t<As>...><<<grid_blocks, block_threads, 0, op_state_.stream_>>>(shape_, f_, as...);
 
-      if constexpr (!std::is_base_of_v<receiver_base_t, Receiver>) {
-        cudaStreamSynchronize(op_state_.stream_);
-      }
+      // bulk_kernel<block_threads, Shape, Fun, std::decay_t<As>...><<<grid_blocks, block_threads, 0, op_state_.stream_>>>(shape_, f_, as...);
+      thrust::cuda_cub::launcher::triple_chevron(grid_blocks, block_threads, 0, 0)
+          .doit(bulk_kernel<block_threads, Shape, Fun, std::decay_t<As>...>, this->base(), as...);
 
-      std::execution::set_value(std::move(this->base()), (As&&)as...);
+      // continuation_kernel<Receiver, std::decay_t<As>...><<<1, 1>>>(this->base(), as...);
+      thrust::cuda_cub::launcher::triple_chevron(1, 1, 0, 0)
+          .doit(continuation_kernel<std::decay_t<Receiver>, std::decay_t<As>...>, this->base(), as...);
     }
 
    public:

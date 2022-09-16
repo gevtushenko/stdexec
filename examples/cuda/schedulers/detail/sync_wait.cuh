@@ -151,6 +151,7 @@ template <std::execution::__single_value_variant_sender<_P2300::this_thread::str
 
   // Launch the sender with a continuation that will fill in a variant
   // and notify a condition variable.
+  /*
   if constexpr (std::is_base_of_v<sender_base_t, _Sender>) {
     auto __op_state = std::execution::connect(
         (_Sender &&) __sndr, _P2300::this_thread::stream_sync_wait::__receiver<std::__x<_Sender>>{{}, &__state, &__loop});
@@ -159,6 +160,7 @@ template <std::execution::__single_value_variant_sender<_P2300::this_thread::str
     // Wait for the variant to be filled in.
     __loop.run();
   } else {
+  */
     auto __op_state = std::execution::connect(
         (_Sender &&) __sndr, _P2300::this_thread::stream_sync_wait::__sink_receiver{});
     std::execution::start(__op_state); 
@@ -166,7 +168,9 @@ template <std::execution::__single_value_variant_sender<_P2300::this_thread::str
     // TODO Doesn't work as intended, just for experiments
     cudaDeviceSynchronize();
     __state.__data_.template emplace<1>();
+  /*
   }
+  */
 
   if (__state.__data_.index() == 2) {
     std::rethrow_exception(std::get<2>(__state.__data_));

@@ -41,66 +41,9 @@ std::uint64_t fib(std::uint64_t n) {
 int main() {
   example::cuda::stream::scheduler_t scheduler{};
 
-  {
-    auto snd = ex::schedule(scheduler) 
-             | ex::let_value([] { 
-                 if (is_on_gpu()) {
-                   std::printf("let on gpu\n");
-                 }
-                 return ex::just(42);
-               })
-             | ex::bulk(4, [](int idx, int val) {
-                 if (is_on_gpu()) {
-                   std::printf("bulk(%d) on gpu: received %d\n", idx, val);
-                 }
-               });
-    std::this_thread::sync_wait(std::move(snd));
-  }
-
-  if (0)
-  {
-    auto snd = ex::schedule(scheduler) 
-             | ex::then([]() -> int { return 42; })
-             | ex::bulk(4, printer_t{1})
-             | ex::bulk(4, printer_t{2});
-    std::this_thread::sync_wait(std::move(snd));
-  }
-
-  if (0)
-  {
-    auto snd = ex::just_stopped() 
-             | ex::transfer(scheduler)
-             | ex::upon_stopped([] () { 
-                 if (is_on_gpu()) {
-                   std::printf("gpu\n");
-                 }
-               });
-    std::execution::start_detached(std::move(snd));
-    std::printf("cpu\n");
-    cudaDeviceSynchronize();
-  }
-
-  if (0)
-  {
-    const int n = 1024;
-    thrust::device_vector<std::uint64_t> a(n, 10);
-    thrust::device_vector<std::uint64_t> b(n);
-    thrust::device_vector<std::uint64_t> c(n);
-    thrust::device_vector<std::uint64_t> d(n);
-
-    std::uint64_t *d_a = thrust::raw_pointer_cast(a.data());
-    std::uint64_t *d_b = thrust::raw_pointer_cast(b.data());
-    std::uint64_t *d_c = thrust::raw_pointer_cast(c.data());
-    std::uint64_t *d_d = thrust::raw_pointer_cast(d.data());
-
-    auto snd = 
-      ex::when_all(
-        ex::schedule(scheduler) | ex::bulk(n, [d_a, d_b](int idx){ d_b[idx] += fib(d_a[idx]); }),
-        ex::schedule(scheduler) | ex::bulk(n, [d_a, d_c](int idx){ d_c[idx] -= fib(d_a[idx]); }),
-        ex::schedule(scheduler) | ex::bulk(n, [d_a, d_d](int idx){ d_d[idx] *= fib(d_a[idx]); }))
-      | ex::transfer(scheduler) | ex::then([] { std::printf("done\n"); });
-
-    std::this_thread::sync_wait(std::move(snd));
-  }
+  auto snd = ex::schedule(scheduler) 
+           | ex::then([]() { std::printf("+1\n"); })
+           | ex::bulk(42, [](int idx) {});
+  std::this_thread::sync_wait(std::move(snd));
 }
 
