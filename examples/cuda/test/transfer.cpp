@@ -37,8 +37,8 @@ TEST_CASE("transfer changes context to GPU", "[cuda][stream][adaptors][transfer]
   example::inline_scheduler cpu{};
   stream::scheduler_t gpu = stream_context.get_scheduler();
 
-  auto snd = ex::schedule(cpu) //
-           | ex::then([=] { 
+  auto snd = ex::schedule(cpu)
+           | ex::then([=] {
                if (!is_on_gpu()) {
                  return 1;
                }
@@ -63,7 +63,7 @@ TEST_CASE("transfer changes context from GPU", "[cuda][stream][adaptors][transfe
   stream::scheduler_t gpu = stream_context.get_scheduler();
 
   auto snd = ex::schedule(gpu) //
-           | ex::then([=] { 
+           | ex::then([=] {
                if (is_on_gpu()) {
                  return 1;
                }
@@ -79,5 +79,23 @@ TEST_CASE("transfer changes context from GPU", "[cuda][stream][adaptors][transfe
   const auto [result] = std::this_thread::sync_wait(std::move(snd)).value();
 
   REQUIRE(result == 2);
+}
+
+TEST_CASE("transfer_just changes context to GPU", "[cuda][stream][adaptors][transfer]") {
+  stream::context_t stream_context{};
+
+  example::inline_scheduler cpu{};
+  stream::scheduler_t gpu = stream_context.get_scheduler();
+
+  auto snd = ex::transfer_just(gpu, 42)
+           | ex::then([=](auto i) {
+               if (is_on_gpu() && i == 42) {
+                 return true;
+               }
+               return false;
+             });
+  const auto [result] = std::this_thread::sync_wait(std::move(snd)).value();
+
+  REQUIRE(result == true);
 }
 
