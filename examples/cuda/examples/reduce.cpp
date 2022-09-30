@@ -5,27 +5,37 @@
 
 #include <cstdio>
 
+template <class Iterator>
+struct simple_range {
+  Iterator first;
+  Iterator last;
+};
+
+template <class Iterator>
+auto begin(simple_range<Iterator>& rng) {
+  return rng.first;
+}
+
+template <class Iterator>
+auto end(simple_range<Iterator>& rng) {
+  return rng.last;
+}
+
 namespace ex = std::execution;
 namespace stream = example::cuda::stream;
 
 int main() {
   const int n = 2 * 1024;
   thrust::device_vector<int> input(n);
-  int *d_in = thrust::raw_pointer_cast(input.data());
+  int* first = thrust::raw_pointer_cast(input.data());
+  int* last  = thrust::raw_pointer_cast(input.data()) + input.size();
 
   stream::context_t stream_context{};
 
-  auto snd = ex::schedule(stream_context.get_scheduler()) 
-           | ex::bulk(n, [d_in](int idx) { d_in[idx] = idx; })
-           | stream::reduce(d_in, n)
-           | ex::then([](int sum) {
-               return sum * 2;
-             }); 
+  auto snd = ex::transfer_just(stream_context.get_scheduler(), simple_range{first, last})
+           | stream::reduce();
 
-  auto  expect = n * (n - 1);
   auto [result] = std::this_thread::sync_wait(std::move(snd)).value();
 
-  std::cout << (expect == result ? "OK" : "FAIL") 
-            << " result: " << result  
-            << " expect: " << expect << std::endl;
+  std::cout << "result: " << result << std::endl;
 }

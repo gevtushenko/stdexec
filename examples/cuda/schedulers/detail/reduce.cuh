@@ -27,49 +27,49 @@
 namespace example::cuda::stream {
 
 namespace reduce_ {
-  template <typename Invokable, typename InputT>
-    using accumulator_t =
-      std::add_lvalue_reference_t<
-        ::cuda::std::decay_t<
-          ::cuda::std::invoke_result_t<Invokable, InputT, InputT>
-        >
-      >;
-
-  template <class ReceiverId, class IteratorId, class Fun>
+  template <class ReceiverId, class Fun>
     class receiver_t : public receiver_base_t {
       using Receiver = std::__t<ReceiverId>;
-      using Iterator = std::__t<IteratorId>;
-      using Result = accumulator_t<Fun, typename std::iterator_traits<Iterator>::value_type>;
 
-      Iterator d_in_;
-      std::size_t num_items_;
       Fun f_;
       operation_state_base_t<ReceiverId> &op_state_;
 
     public:
 
-      constexpr static std::size_t memory_allocation_size = sizeof(std::decay_t<Result>);
-
-      friend void tag_invoke(std::execution::set_value_t, receiver_t&& self) noexcept {
+      template <class Range>
+      friend void tag_invoke(std::execution::set_value_t, receiver_t&& self, Range&& range) noexcept {
         cudaStream_t stream = self.op_state_.stream_;
 
-        using value_t = std::decay_t<Result>;
-        value_t *d_out = reinterpret_cast<value_t*>(self.op_state_.temp_storage_);
+        using Result = ::cuda::std::decay_t<
+          ::cuda::std::invoke_result_t<Fun, decltype(*begin(std::declval<Range>())),
+                                            decltype(*begin(std::declval<Range>()))>
+        >;
+
+        using value_t = Result;
+        value_t *d_out{};
+        THROW_ON_CUDA_ERROR(cudaMallocAsync(&d_out, sizeof(value_t), stream));
 
         void *d_temp_storage{};
         std::size_t temp_storage_size{};
 
-        THROW_ON_CUDA_ERROR(cub::DeviceReduce::Reduce(d_temp_storage, temp_storage_size, self.d_in_,
-                                                      d_out, self.num_items_, self.f_, value_t{},
+        auto first = begin(range);
+        auto last = end(range);
+
+        std::size_t num_items = std::distance(first, last);
+
+        THROW_ON_CUDA_ERROR(cub::DeviceReduce::Reduce(d_temp_storage, temp_storage_size, first,
+                                                      d_out, num_items, self.f_, value_t{},
                                                       stream));
         THROW_ON_CUDA_ERROR(cudaMallocAsync(&d_temp_storage, temp_storage_size, stream));
 
-        THROW_ON_CUDA_ERROR(cub::DeviceReduce::Reduce(d_temp_storage, temp_storage_size, self.d_in_,
-                                                      d_out, self.num_items_, self.f_, value_t{},
+        THROW_ON_CUDA_ERROR(cub::DeviceReduce::Reduce(d_temp_storage, temp_storage_size, first,
+                                                      d_out, num_items, self.f_, value_t{},
                                                       stream));
         THROW_ON_CUDA_ERROR(cudaFreeAsync(d_temp_storage, stream));
 
         self.op_state_.propagate_completion_signal(std::execution::set_value, *d_out);
+
+        THROW_ON_CUDA_ERROR(cudaFreeAsync(d_out, stream));
       }
 
       template <std::__one_of<std::execution::set_error_t,
@@ -85,33 +85,39 @@ namespace reduce_ {
         return std::execution::get_env(self.op_state_.receiver_);
       }
 
-      receiver_t(Iterator it, std::size_t num_items, Fun fun, operation_state_base_t<ReceiverId> &op_state)
-        : d_in_(it)
-        , num_items_(num_items)
-        , f_((Fun&&) fun)
+      receiver_t(Fun fun, operation_state_base_t<ReceiverId> &op_state)
+        : f_((Fun&&) fun)
         , op_state_(op_state)
       {}
     };
 }
 
-template <class SenderId, class IteratorId, class FunId>
+template <typename Range>
+auto __begin(Range&& range) {
+  return begin(range);
+}
+
+template <class SenderId, class FunId>
   struct reduce_sender_t : gpu_sender_base_t {
     using Sender = std::__t<SenderId>;
-    using Iterator = std::__t<IteratorId>;
     using Fun = std::__t<FunId>;
-    using Result = reduce_::accumulator_t<Fun, typename std::iterator_traits<Iterator>::value_type>;
 
     Sender sndr_;
-    Iterator it_;
-    std::size_t num_items_;
     Fun fun_;
 
     template <class Receiver>
-      using receiver_t = reduce_::receiver_t<std::__x<Receiver>, IteratorId, Fun>;
+      using receiver_t = reduce_::receiver_t<std::__x<Receiver>, Fun>;
 
-    template <class... Ts>
+    template <class... Range>
+        requires (sizeof...(Range) == 1)
       using set_value_t =
-        std::execution::completion_signatures<std::execution::set_value_t(Result)>;
+        std::execution::completion_signatures<std::execution::set_value_t(
+          std::add_lvalue_reference_t<
+            ::cuda::std::decay_t<
+              ::cuda::std::invoke_result_t<Fun, decltype(*__begin(std::declval<Range>())), decltype(*__begin(std::declval<Range>()))>
+            >
+          >...
+        )>;
 
     template <class Self, class Env>
       using completion_signatures =
@@ -119,7 +125,8 @@ template <class SenderId, class IteratorId, class FunId>
           std::__member_t<Self, Sender>,
           Env,
           std::execution::completion_signatures<std::execution::set_error_t(cudaError_t)>,
-          set_value_t>;
+          set_value_t
+          >;
 
     template <std::__decays_to<reduce_sender_t> Self, std::execution::receiver Receiver>
       requires std::execution::receiver_of<Receiver, completion_signatures<Self, std::execution::env_of_t<Receiver>>>
@@ -129,7 +136,7 @@ template <class SenderId, class IteratorId, class FunId>
           ((Self&&)self).sndr_,
           (Receiver&&)rcvr,
           [&](operation_state_base_t<std::__x<Receiver>>& stream_provider) -> receiver_t<Receiver> {
-            return receiver_t<Receiver>(self.it_, self.num_items_, self.fun_, stream_provider);
+            return receiver_t<Receiver>(self.fun_, stream_provider);
           });
     }
 
@@ -151,21 +158,20 @@ template <class SenderId, class IteratorId, class FunId>
   };
 
 struct reduce_t {
-  template <class Sender, class Iterator, class Fun>
+  template <class Sender, class Fun>
     using __sender =
       reduce_sender_t<
         std::__x<std::remove_cvref_t<Sender>>,
-        std::__x<std::remove_cvref_t<Iterator>>,
         std::__x<std::remove_cvref_t<Fun>>>;
 
-  template <std::execution::sender Sender, class Iterator, std::execution::__movable_value Fun>
-    __sender<Sender, Iterator, Fun> operator()(Sender&& __sndr, Iterator it, std::size_t num_items, Fun __fun) const {
-      return __sender<Sender, Iterator, Fun>{{}, (Sender&&) __sndr, it, num_items, (Fun&&) __fun};
+  template <std::execution::sender Sender, std::execution::__movable_value Fun>
+    __sender<Sender, Fun> operator()(Sender&& __sndr, Fun __fun) const {
+      return __sender<Sender, Fun>{{}, (Sender&&) __sndr, (Fun&&) __fun};
     }
 
-  template <class Iterator, class Fun = cub::Sum>
-    std::execution::__binder_back<reduce_t, Iterator, std::size_t, Fun> operator()(Iterator it, std::size_t num_items, Fun __fun={}) const {
-      return {{}, {}, {it, num_items, (Fun&&) __fun}};
+  template <class Fun = cub::Sum>
+    std::execution::__binder_back<reduce_t, Fun> operator()(Fun __fun={}) const {
+      return {{}, {}, {(Fun&&) __fun}};
     }
 };
 
