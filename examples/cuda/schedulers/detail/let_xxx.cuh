@@ -23,7 +23,7 @@
 namespace example::cuda::stream {
   namespace let_xxx {
     template <class Fun, class ResultSenderT, class... As>
-      __launch_bounds__(1) 
+      __launch_bounds__(1)
       __global__ void kernel_with_result(Fun fn, ResultSenderT* result, As&&... as) {
         new (result) ResultSenderT(fn((As&&)as...));
       }
@@ -100,9 +100,9 @@ namespace example::cuda::stream {
       struct __storage {
         template <class... _As>
           struct __op_state_for_ {
-            using __t = 
+            using __t =
               std::execution::connect_result_t<
-                __result_sender_t<_Fun, _As...>, 
+                __result_sender_t<_Fun, _As...>,
                 propagate_receiver_t<std::__x<_Receiver>>>;
           };
         template <class... _As>
@@ -195,14 +195,14 @@ namespace example::cuda::stream {
 
               auto result_sender = reinterpret_cast<result_sender_t *>(__self.__op_state_->__sender_memory_.get());
               kernel_with_result<<<1, 1, 0, stream>>>(__self.__op_state_->__fun_, result_sender, (_As&&)__as...);
-              cudaStreamSynchronize(stream);
+              THROW_ON_CUDA_ERROR(cudaStreamSynchronize(stream));
 
               auto& __op = __self.__op_state_->__storage_.__op_state3_.template emplace<__op_state_t>(
                 std::__conv{[&] {
                   return std::execution::connect(
-                      *result_sender, 
+                      *result_sender,
                       propagate_receiver_t<_ReceiverId>{
-                        {}, 
+                        {},
                         static_cast<operation_state_base_t<_ReceiverId>&>(
                             *__self.__op_state_)});
                 }}
@@ -232,14 +232,14 @@ namespace example::cuda::stream {
 
     inline void cuda_deleter(std::uint8_t *ptr) {
       if (ptr) {
-        cudaFree(ptr);
+        THROW_ON_CUDA_ERROR(cudaFree(ptr));
       }
     }
 
     template <class _SenderId, class _ReceiverId, class _FunId, class _Let>
-      using __operation_base = 
+      using __operation_base =
         detail::operation_state_t<
-          _SenderId, 
+          _SenderId,
           std::__x<__receiver<_SenderId, _ReceiverId, _FunId, _Let>>,
           _ReceiverId>;
 
@@ -251,9 +251,8 @@ namespace example::cuda::stream {
         using __receiver_t = __receiver<_SenderId, _ReceiverId, _FunId, _Let>;
 
         friend void tag_invoke(std::execution::start_t, __operation& __self) noexcept {
-          // TODO Check allocation errors
           std::uint8_t *sender_memory{};
-          cudaMallocManaged(&sender_memory, std::__v<__max_sender_size<_Sender, _Receiver, _Fun, _Let>>);
+          THROW_ON_CUDA_ERROR(cudaMallocManaged(&sender_memory, std::__v<__max_sender_size<_Sender, _Receiver, _Fun, _Let>>));
           __self.__sender_memory_.reset(sender_memory);
 
           std::execution::start(__self.inner_op_);
@@ -262,7 +261,7 @@ namespace example::cuda::stream {
         template <class _Receiver2>
           __operation(_Sender&& __sndr, _Receiver2&& __rcvr, _Fun __fun)
             : __operation_base<_SenderId, _ReceiverId, _FunId, _Let>(
-                (_Sender&&) __sndr, 
+                (_Sender&&) __sndr,
                 std::execution::get_completion_scheduler<std::execution::set_value_t>(__sndr).hub_,
                 (_Receiver2&&)__rcvr,
                 [this] (operation_state_base_t<std::__x<_Receiver2>> &) -> __receiver_t {

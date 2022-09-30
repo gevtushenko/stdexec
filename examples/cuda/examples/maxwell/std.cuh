@@ -19,10 +19,10 @@
 
 #include <thread>
 #include <vector>
-#include <barrier>
+#include <cuda/std/barrier>
 
 template <class Shape>
-std::pair<Shape, Shape> 
+std::pair<Shape, Shape>
 even_share(Shape n, std::uint32_t rank, std::uint32_t size) noexcept {
   const auto avg_per_thread = n / size;
   const auto n_big_share = avg_per_thread + 1;
@@ -49,9 +49,9 @@ void run_std(float dt, bool write_vtk, std::size_t n_inner_iterations,
 
   const std::size_t n_threads = std::thread::hardware_concurrency();
   std::vector<std::thread> threads(n_threads);
-  std::barrier barrier(n_threads);
+  cuda::std::barrier barrier(n_threads);
 
-  report_performance(grid.cells, n_inner_iterations * n_outer_iterations, method, 
+  report_performance(grid.cells, n_inner_iterations * n_outer_iterations, method,
                      [&]() {
                        for (std::size_t tid = 0; tid < n_threads; tid++) {
                          threads[tid] = std::thread([=, &barrier] {

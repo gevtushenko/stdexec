@@ -32,7 +32,7 @@ namespace repeat_n_detail {
     friend void tag_invoke(ex::set_value_t, sink_receiver &&, auto&&...) noexcept {}
     friend void tag_invoke(ex::set_error_t, sink_receiver &&, auto&&) noexcept {}
     friend void tag_invoke(ex::set_stopped_t, sink_receiver &&) noexcept {}
-    friend ex::__empty_env tag_invoke(ex::get_env_t, sink_receiver) noexcept { 
+    friend ex::__empty_env tag_invoke(ex::get_env_t, sink_receiver) noexcept {
       return {};
     }
   };
@@ -54,7 +54,7 @@ namespace repeat_n_detail {
           for (std::size_t i = 0; i < self.n_; i++) {
             ex::start(op_state);
           }
-          cudaStreamSynchronize(op_state.stream_);
+          THROW_ON_CUDA_ERROR(cudaStreamSynchronize(op_state.stream_));
         } else {
           for (std::size_t i = 0; i < self.n_; i++) {
             std::this_thread::sync_wait((Sender&&)self.sender_);
@@ -83,7 +83,7 @@ namespace repeat_n_detail {
 
       template <std::__decays_to<repeat_n_sender_t> Self, class Receiver>
         requires std::tag_invocable<std::execution::connect_t, Sender, Receiver> friend auto
-      tag_invoke(std::execution::connect_t, Self &&self, Receiver &&r) 
+      tag_invoke(std::execution::connect_t, Self &&self, Receiver &&r)
         -> operation_state_t<SenderId, std::__x<Receiver>> {
         return operation_state_t<SenderId, std::__x<Receiver>>(
           (Sender&&)self.sender_,
@@ -105,7 +105,7 @@ namespace repeat_n_detail {
     }
   };
 
-} 
+}
 
 inline constexpr repeat_n_detail::repeat_n_t repeat_n{};
 
@@ -127,14 +127,14 @@ auto maxwell_eqs_snr(float dt,
                      std::execution::scheduler auto &&writer) {
   auto write = dump_vtk(write_results, report_step, accessor);
 
-  return repeat_n(                                                      
-           n_outer_iterations,                                          
-             repeat_n(                                                    
-               n_inner_iterations,                                        
-                 ex::schedule(computer) 
-               | ex::bulk(accessor.cells, update_h(accessor)) 
-               | ex::bulk(accessor.cells, update_e(time, dt, accessor))) 
-           | ex::transfer(writer) 
+  return repeat_n(
+           n_outer_iterations,
+             repeat_n(
+               n_inner_iterations,
+                 ex::schedule(computer)
+               | ex::bulk(accessor.cells, update_h(accessor))
+               | ex::bulk(accessor.cells, update_e(time, dt, accessor)))
+           | ex::transfer(writer)
            | ex::then(std::move(write)));
 }
 

@@ -33,9 +33,9 @@ public:
     }
 
   public:
-    __device__ void set(int idx = 0) const { 
+    __device__ void set(int idx = 0) const {
       if (idx < N) {
-        flags_[idx] += 1; 
+        flags_[idx] += 1;
       }
     }
 
@@ -49,16 +49,16 @@ public:
   void operator()(flags_storage_t &&) = delete;
 
   flags_t get() {
-    return {flags_}; 
+    return {flags_};
   }
 
   flags_storage_t() {
-    cudaMallocHost(&flags_, sizeof(int) * N);
+    THROW_ON_CUDA_ERROR(cudaMallocHost(&flags_, sizeof(int) * N));
     memset(flags_, 0, sizeof(int) * N);
   }
 
   ~flags_storage_t() {
-    cudaFreeHost(flags_);
+    THROW_ON_CUDA_ERROR(cudaFreeHost(flags_));
     flags_ = nullptr;
   }
 
@@ -70,8 +70,8 @@ public:
     return is_set_n_times(1);
   }
 
-  bool all_unset() { 
-    return !all_set_once(); 
+  bool all_unset() {
+    return !all_set_once();
   }
 };
 
@@ -101,7 +101,7 @@ namespace detail {
       Fun f_;
 
       template <class... As>
-      void set_value(As&&... as) && noexcept 
+      void set_value(As&&... as) && noexcept
         requires std::__callable<Fun, As&&...> {
         using result_t = std::invoke_result_t<Fun, As&&...>;
 
@@ -133,7 +133,7 @@ namespace detail {
 
       template <class Self, class Receiver>
         using op_t = operation_state_t<
-          std::__x<std::__member_t<Self, Sender>>, 
+          std::__x<std::__member_t<Self, Sender>>,
           std::__x<receiver_th<Receiver>>>;
 
       template <class Self, class Env>
@@ -142,9 +142,9 @@ namespace detail {
             std::__member_t<Self, Sender>,
             Env,
             std::execution::__with_error_invoke_t<
-              std::execution::set_value_t, 
-              Fun, 
-              std::__member_t<Self, Sender>, 
+              std::execution::set_value_t,
+              Fun,
+              std::__member_t<Self, Sender>,
               Env>,
             std::__mbind_front_q<std::execution::__set_value_invoke_t, Fun>>;
 
@@ -176,7 +176,7 @@ namespace detail {
 struct a_sender_t {
   template <class _Sender, class _Fun>
     using sender_th = detail::sender_t<
-      std::__x<std::remove_cvref_t<_Sender>>, 
+      std::__x<std::remove_cvref_t<_Sender>>,
       std::__x<std::remove_cvref_t<_Fun>>>;
 
   template <std::execution::sender _Sender, class _Fun>

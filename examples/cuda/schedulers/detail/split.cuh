@@ -24,12 +24,16 @@ namespace example::cuda::stream {
   namespace split {
     template <std::size_t I, class T>
       void fetch(cudaStream_t stream, T&) {
-        cudaStreamSynchronize(stream);
+        THROW_ON_CUDA_ERROR(cudaStreamSynchronize(stream));
       }
 
     template <std::size_t I, class T, class Head, class... As>
       void fetch(cudaStream_t stream, T& tpl, Head&& head, As&&... as) {
-        cudaMemcpyAsync(&std::get<I>(tpl), &head, sizeof(std::decay_t<Head>), cudaMemcpyDeviceToHost, stream);
+        THROW_ON_CUDA_ERROR(cudaMemcpyAsync(&std::get<I>(tpl),
+                                            &head,
+                                            sizeof(std::decay_t<Head>),
+                                            cudaMemcpyDeviceToHost,
+                                            stream));
         fetch<I + 1>(stream, tpl, (As&&)as...);
       }
 

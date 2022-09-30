@@ -21,8 +21,8 @@ TEST_CASE("start_detached doesn't block", "[cuda][stream][consumers][start_detac
 
   int *host_flag{};
   int *device_flag{};
-  cudaMallocHost(&host_flag, sizeof(int));
-  cudaMallocHost(&device_flag, sizeof(int));
+  THROW_ON_CUDA_ERROR(cudaMallocHost(&host_flag, sizeof(int)));
+  THROW_ON_CUDA_ERROR(cudaMallocHost(&device_flag, sizeof(int)));
   *host_flag = *device_flag = 0;
 
   auto snd = ex::schedule(stream_context.get_scheduler()) //
@@ -50,8 +50,8 @@ TEST_CASE("start_detached doesn't block", "[cuda][stream][consumers][start_detac
 
   REQUIRE(device_flag_ref.load(cuda::memory_order_relaxed) > 0);
 
-  cudaFreeHost(host_flag);
-  cudaFreeHost(device_flag);
+  THROW_ON_CUDA_ERROR(cudaFreeHost(host_flag));
+  THROW_ON_CUDA_ERROR(cudaFreeHost(device_flag));
 }
 
 #endif

@@ -25,13 +25,13 @@ namespace example::cuda::stream {
 namespace then {
 
 template <class Fun, class... As>
-  __launch_bounds__(1) 
+  __launch_bounds__(1)
   __global__ void kernel(Fun fn, As... as) {
     fn((As&&)as...);
   }
 
 template <class Fun, class ResultT, class... As>
-  __launch_bounds__(1) 
+  __launch_bounds__(1)
   __global__ void kernel_with_result(Fun fn, ResultT* result, As... as) {
     *result = fn((As&&)as...);
   }
@@ -46,7 +46,7 @@ template <class ReceiverId, class Fun>
    public:
 
     template <class... As _NVCXX_CAPTURE_PACK(As)>
-    friend void tag_invoke(std::execution::set_value_t, receiver_t&& self, As&&... as) 
+    friend void tag_invoke(std::execution::set_value_t, receiver_t&& self, As&&... as)
       noexcept requires std::__callable<Fun, As...> {
 
       _NVCXX_EXPAND_PACK(As, as,
@@ -59,16 +59,16 @@ template <class ReceiverId, class Fun>
           self.op_state_.propagate_completion_signal(std::execution::set_value);
         } else {
           result_t *d_result{};
-          cudaMallocAsync(&d_result, sizeof(result_t), stream);
+          THROW_ON_CUDA_ERROR(cudaMallocAsync(&d_result, sizeof(result_t), stream));
           kernel_with_result<std::decay_t<Fun>, result_t, As...><<<1, 1, 0, stream>>>(self.f_, d_result, (As&&)as...);
           self.op_state_.propagate_completion_signal(std::execution::set_value, *d_result);
-          cudaFreeAsync(d_result, stream);
+          THROW_ON_CUDA_ERROR(cudaFreeAsync(d_result, stream));
         }
       );
     }
 
-    template <std::__one_of<std::execution::set_error_t, 
-                            std::execution::set_stopped_t> Tag, 
+    template <std::__one_of<std::execution::set_error_t,
+                            std::execution::set_stopped_t> Tag,
               class... As _NVCXX_CAPTURE_PACK(As)>
     friend void tag_invoke(Tag tag, receiver_t&& self, As&&... as) noexcept {
       _NVCXX_EXPAND_PACK(As, as,
@@ -113,9 +113,9 @@ template <class SenderId, class FunId>
           std::__member_t<Self, Sender>,
           Env,
           std::execution::__with_error_invoke_t<
-            std::execution::set_value_t, 
-            Fun, 
-            std::__member_t<Self, Sender>, 
+            std::execution::set_value_t,
+            Fun,
+            std::__member_t<Self, Sender>,
             Env>,
           std::__mbind_front_q<std::execution::__set_value_invoke_t, Fun>>;
 
@@ -124,7 +124,7 @@ template <class SenderId, class FunId>
     friend auto tag_invoke(std::execution::connect_t, Self&& self, Receiver&& rcvr)
       -> stream_op_state_t<std::__member_t<Self, Sender>, receiver_t<Receiver>, Receiver> {
         return stream_op_state<std::__member_t<Self, Sender>>(
-          ((Self&&)self).sndr_, 
+          ((Self&&)self).sndr_,
           (Receiver&&)rcvr,
           [&](operation_state_base_t<std::__x<Receiver>>& stream_provider) -> receiver_t<Receiver> {
             return receiver_t<Receiver>(self.fun_, stream_provider);

@@ -27,13 +27,13 @@
 template <class Policy>
 bool is_gpu_policy(Policy&& policy) {
   bool* flag{};
-  cudaMallocHost(&flag, sizeof(bool));
+  THROW_ON_CUDA_ERROR(cudaMallocHost(&flag, sizeof(bool)));
   std::for_each(policy, flag, flag + 1, [](bool& f) {
     f = example::cuda::is_on_gpu();
   });
 
   bool h_flag = *flag;
-  cudaFreeHost(flag);
+  THROW_ON_CUDA_ERROR(cudaFreeHost(flag));
 
   return h_flag;
 }
@@ -52,7 +52,7 @@ void run_stdpar(float dt, bool write_vtk, std::size_t n_inner_iterations,
 
   std::for_each(policy, begin, end, grid_initializer(dt, accessor));
 
-  report_performance(grid.cells, n_inner_iterations * n_outer_iterations, method, 
+  report_performance(grid.cells, n_inner_iterations * n_outer_iterations, method,
                      [&]() {
                        std::size_t report_step = 0;
                        auto writer = dump_vtk(write_vtk, report_step, accessor);

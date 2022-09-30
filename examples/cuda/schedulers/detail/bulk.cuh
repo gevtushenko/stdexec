@@ -24,7 +24,7 @@ namespace example::cuda::stream {
 
 namespace bulk {
   template <int BlockThreads, std::integral Shape, class Fun, class... As>
-    __launch_bounds__(BlockThreads) 
+    __launch_bounds__(BlockThreads)
     __global__ void kernel(Shape shape, Fun fn, As&&... as) {
       const int tid = static_cast<int>(threadIdx.x + blockIdx.x * blockDim.x);
 
@@ -44,7 +44,7 @@ namespace bulk {
 
     public:
       template <class... As _NVCXX_CAPTURE_PACK(As)>
-        friend void tag_invoke(std::execution::set_value_t, receiver_t&& self, As&&... as) 
+        friend void tag_invoke(std::execution::set_value_t, receiver_t&& self, As&&... as)
           noexcept requires std::__callable<Fun, Shape, As...> {
           _NVCXX_EXPAND_PACK(As, as,
             constexpr int block_threads = 256;
@@ -57,7 +57,7 @@ namespace bulk {
           );
         }
 
-      template <std::__one_of<std::execution::set_error_t, 
+      template <std::__one_of<std::execution::set_error_t,
                               std::execution::set_stopped_t> Tag, class... As>
         friend void tag_invoke(Tag tag, receiver_t&& self, As&&... as) noexcept {
           self.op_state_.propagate_completion_signal(tag, (As&&)as...);
@@ -84,7 +84,7 @@ template <class SenderId, std::integral Shape, class FunId>
     Shape shape_;
     Fun fun_;
 
-    using set_error_t = 
+    using set_error_t =
       std::execution::completion_signatures<
         std::execution::set_error_t(cudaError_t)>;
 
@@ -92,7 +92,7 @@ template <class SenderId, std::integral Shape, class FunId>
       using receiver_t = bulk::receiver_t<std::__x<Receiver>, Shape, Fun>;
 
     template <class... Tys>
-    using set_value_t = 
+    using set_value_t =
       std::execution::completion_signatures<
         std::execution::set_value_t(Tys...)>;
 
@@ -109,7 +109,7 @@ template <class SenderId, std::integral Shape, class FunId>
     friend auto tag_invoke(std::execution::connect_t, Self&& self, Receiver&& rcvr)
       -> stream_op_state_t<std::__member_t<Self, Sender>, receiver_t<Receiver>, Receiver> {
         return stream_op_state<std::__member_t<Self, Sender>>(
-            ((Self&&)self).sndr_, 
+            ((Self&&)self).sndr_,
             (Receiver&&)rcvr,
             [&](operation_state_base_t<std::__x<Receiver>>& stream_provider) -> receiver_t<Receiver> {
               return receiver_t<Receiver>(self.shape_, self.fun_, stream_provider);

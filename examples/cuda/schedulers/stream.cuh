@@ -103,7 +103,7 @@ namespace example::cuda::stream {
         return self.make_scheduler();
       }
 
-      sender_t(detail::queue::task_hub_t* hub) noexcept 
+      sender_t(detail::queue::task_hub_t* hub) noexcept
         : hub_(hub) {}
 
       detail::queue::task_hub_t * hub_;
@@ -146,13 +146,13 @@ namespace example::cuda::stream {
     }
 
     template <std::execution::sender... Senders>
-    friend auto 
+    friend auto
     tag_invoke(std::execution::transfer_when_all_t, const scheduler_t& sch, Senders&&... sndrs) noexcept {
       return std::execution::transfer(when_all_sender_th<Senders...>{(Senders&&)sndrs...}, sch);
     }
 
     template <std::execution::sender... Senders>
-    friend auto 
+    friend auto
     tag_invoke(std::execution::transfer_when_all_with_variant_t, const scheduler_t& sch, Senders&&... sndrs) noexcept {
       return std::execution::transfer(
           when_all_sender_th<std::tag_invoke_result_t<std::execution::__into_variant_t, Senders>...>{

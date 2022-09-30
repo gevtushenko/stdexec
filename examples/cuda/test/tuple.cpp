@@ -17,6 +17,7 @@
 #include <catch2/catch.hpp>
 #include <execution.hpp>
 
+#include "schedulers/detail/throw_on_cuda_error.cuh"
 #include "schedulers/detail/tuple.cuh"
 
 using example::cuda::tuple_t;
@@ -56,7 +57,7 @@ __global__ void kernel(Tuple* t, As... as) {
 TEST_CASE("tuple emplaces alternative from GPU", "[cuda][stream][containers][tuple]") {
   using tuple_t = tuple_t<int, double>;
   tuple_t *t{};
-  cudaMallocHost(&t, sizeof(tuple_t));
+  THROW_ON_CUDA_ERROR(cudaMallocHost(&t, sizeof(tuple_t)));
   new (t) tuple_t();
   apply([](int i, double d) {
       REQUIRE(i == 0);
@@ -64,19 +65,19 @@ TEST_CASE("tuple emplaces alternative from GPU", "[cuda][stream][containers][tup
   }, *t);
 
   kernel<<<1, 1>>>(t, 42, 4.2);
-  cudaDeviceSynchronize();
+  THROW_ON_CUDA_ERROR(cudaDeviceSynchronize());
   apply([](int i, double d) {
       REQUIRE(i == 42);
       REQUIRE(d == 4.2);
   }, *t);
 
   kernel<<<1, 1>>>(t, 24, 2.4);
-  cudaDeviceSynchronize();
+  THROW_ON_CUDA_ERROR(cudaDeviceSynchronize());
   apply([](int i, double d) {
       REQUIRE(i == 24);
       REQUIRE(d == 2.4);
   }, *t);
 
-  cudaFreeHost(t);
+  THROW_ON_CUDA_ERROR(cudaFreeHost(t));
 }
 

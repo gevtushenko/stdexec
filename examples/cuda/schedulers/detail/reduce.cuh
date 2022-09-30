@@ -28,7 +28,7 @@ namespace example::cuda::stream {
 
 namespace reduce_ {
   template <typename Invokable, typename InputT>
-    using accumulator_t = 
+    using accumulator_t =
       std::add_lvalue_reference_t<
         ::cuda::std::decay_t<
           ::cuda::std::invoke_result_t<Invokable, InputT, InputT>
@@ -53,27 +53,27 @@ namespace reduce_ {
 
         using value_t = std::decay_t<Result>;
         value_t *d_out{};
-        cudaMallocAsync(&d_out, sizeof(value_t), stream);
+        THROW_ON_CUDA_ERROR(cudaMallocAsync(&d_out, sizeof(value_t), stream));
 
         void *d_temp_storage{};
         std::size_t temp_storage_size{};
 
-        cub::DeviceReduce::Reduce(d_temp_storage, temp_storage_size, self.d_in_,
-                                  d_out, self.num_items_, self.f_, value_t{},
-                                  stream);
-        cudaMallocAsync(&d_temp_storage, temp_storage_size, stream);
+        THROW_ON_CUDA_ERROR(cub::DeviceReduce::Reduce(d_temp_storage, temp_storage_size, self.d_in_,
+                                                      d_out, self.num_items_, self.f_, value_t{},
+                                                      stream));
+        THROW_ON_CUDA_ERROR(cudaMallocAsync(&d_temp_storage, temp_storage_size, stream));
 
-        cub::DeviceReduce::Reduce(d_temp_storage, temp_storage_size, self.d_in_,
-                                  d_out, self.num_items_, self.f_, value_t{},
-                                  stream);
-        cudaFreeAsync(d_temp_storage, stream);
+        THROW_ON_CUDA_ERROR(cub::DeviceReduce::Reduce(d_temp_storage, temp_storage_size, self.d_in_,
+                                                      d_out, self.num_items_, self.f_, value_t{},
+                                                      stream));
+        THROW_ON_CUDA_ERROR(cudaFreeAsync(d_temp_storage, stream));
 
         self.op_state_.propagate_completion_signal(std::execution::set_value, *d_out);
-        cudaFreeAsync(d_out, stream);
+        THROW_ON_CUDA_ERROR(cudaFreeAsync(d_out, stream));
       }
 
-      template <std::__one_of<std::execution::set_error_t, 
-                              std::execution::set_stopped_t> Tag, 
+      template <std::__one_of<std::execution::set_error_t,
+                              std::execution::set_stopped_t> Tag,
                 class... As _NVCXX_CAPTURE_PACK(As)>
         friend void tag_invoke(Tag tag, receiver_t&& self, As&&... as) noexcept {
           _NVCXX_EXPAND_PACK(As, as,
@@ -126,7 +126,7 @@ template <class SenderId, class IteratorId, class FunId>
     friend auto tag_invoke(std::execution::connect_t, Self&& self, Receiver&& rcvr)
       -> stream_op_state_t<std::__member_t<Self, Sender>, receiver_t<Receiver>, Receiver> {
         return stream_op_state<std::__member_t<Self, Sender>>(
-          ((Self&&)self).sndr_, 
+          ((Self&&)self).sndr_,
           (Receiver&&)rcvr,
           [&](operation_state_base_t<std::__x<Receiver>>& stream_provider) -> receiver_t<Receiver> {
             return receiver_t<Receiver>(self.it_, self.num_items_, self.fun_, stream_provider);
@@ -152,10 +152,10 @@ template <class SenderId, class IteratorId, class FunId>
 
 struct reduce_t {
   template <class Sender, class Iterator, class Fun>
-    using __sender = 
+    using __sender =
       reduce_sender_t<
-        std::__x<std::remove_cvref_t<Sender>>, 
-        std::__x<std::remove_cvref_t<Iterator>>, 
+        std::__x<std::remove_cvref_t<Sender>>,
+        std::__x<std::remove_cvref_t<Iterator>>,
         std::__x<std::remove_cvref_t<Fun>>>;
 
   template <std::execution::sender Sender, class Iterator, std::execution::__movable_value Fun>

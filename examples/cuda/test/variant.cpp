@@ -17,6 +17,7 @@
 #include <catch2/catch.hpp>
 #include <execution.hpp>
 
+#include "schedulers/detail/throw_on_cuda_error.cuh"
 #include "schedulers/detail/variant.cuh"
 #include "schedulers/detail/tuple.cuh"
 
@@ -70,26 +71,26 @@ __global__ void kernel(V* v, T alt) {
 TEST_CASE("variant emplaces alternative from GPU", "[cuda][stream][containers][variant]") {
   using variant_t = variant_t<int, double>;
   variant_t *v{};
-  cudaMallocHost(&v, sizeof(variant_t));
+  THROW_ON_CUDA_ERROR(cudaMallocHost(&v, sizeof(variant_t)));
   new (v) variant_t();
 
   REQUIRE(v->index_ == 0);
 
   kernel<<<1, 1>>>(v, 4.2);
-  cudaDeviceSynchronize();
+  THROW_ON_CUDA_ERROR(cudaDeviceSynchronize());
 
   visit([](auto alt) {
       REQUIRE(alt == 4.2);
   }, *v);
 
   kernel<<<1, 1>>>(v, 42);
-  cudaDeviceSynchronize();
+  THROW_ON_CUDA_ERROR(cudaDeviceSynchronize());
 
   visit([](auto alt) {
       REQUIRE(alt == 42);
   }, *v);
 
-  cudaFreeHost(v);
+  THROW_ON_CUDA_ERROR(cudaFreeHost(v));
 }
 
 TEST_CASE("variant works with cuda tuple", "[cuda][stream][containers][variant]") {

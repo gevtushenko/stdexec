@@ -26,12 +26,16 @@ namespace transfer {
 
   template <std::size_t I, class T>
     void fetch(cudaStream_t stream, T&) {
-      cudaStreamSynchronize(stream);
+      THROW_ON_CUDA_ERROR(cudaStreamSynchronize(stream));
     }
 
   template <std::size_t I, class T, class Head, class... As>
     void fetch(cudaStream_t stream, T& tpl, Head&& head, As&&... as) {
-      cudaMemcpyAsync(&std::get<I>(tpl), &head, sizeof(std::decay_t<Head>), cudaMemcpyDeviceToHost, stream);
+      THROW_ON_CUDA_ERROR(cudaMemcpyAsync(&std::get<I>(tpl),
+                                          &head,
+                                          sizeof(std::decay_t<Head>),
+                                          cudaMemcpyDeviceToHost,
+                                          stream));
       fetch<I + 1>(stream, tpl, (As&&)as...);
     }
 
@@ -40,15 +44,15 @@ namespace transfer {
     using Receiver = std::__t<ReceiverId>;
     Receiver receiver_;
 
-    template <class Tag, class... As _NVCXX_CAPTURE_PACK(As)> 
+    template <class Tag, class... As _NVCXX_CAPTURE_PACK(As)>
       friend void tag_invoke(Tag, sink_receiver_t&& __rcvr, As&&... as) noexcept {
         _NVCXX_EXPAND_PACK(As, as,
 
         );
       }
 
-    friend std::execution::env_of_t<Receiver> tag_invoke(std::execution::get_env_t, const sink_receiver_t& self) noexcept { 
-      return std::execution::get_env(self.receiver_); 
+    friend std::execution::env_of_t<Receiver> tag_invoke(std::execution::get_env_t, const sink_receiver_t& self) noexcept {
+      return std::execution::get_env(self.receiver_);
     }
   };
 
@@ -57,8 +61,8 @@ namespace transfer {
       using Sender = std::__t<SenderId>;
       operation_state_base_t<ReceiverId>& operation_state_;
 
-      template <std::__one_of<std::execution::set_value_t, 
-                              std::execution::set_error_t, 
+      template <std::__one_of<std::execution::set_value_t,
+                              std::execution::set_error_t,
                               std::execution::set_stopped_t> Tag,
                 class... As _NVCXX_CAPTURE_PACK(As)>
       friend void tag_invoke(Tag tag, bypass_receiver_t&& self, As&&... as) noexcept {
@@ -73,13 +77,13 @@ namespace transfer {
               tag(std::move(self.operation_state_.receiver_.receiver_), tas...);
             }, h_as);
           } else {
-            cudaStreamSynchronize(stream);
+            THROW_ON_CUDA_ERROR(cudaStreamSynchronize(stream));
             tag(std::move(self.operation_state_.receiver_.receiver_), (As&&)as...);
           }
         );
       }
 
-      friend std::execution::env_of_t<typename std::__t<ReceiverId>::Receiver> 
+      friend std::execution::env_of_t<typename std::__t<ReceiverId>::Receiver>
       tag_invoke(std::execution::get_env_t, const bypass_receiver_t& self) {
         return std::execution::get_env(self.operation_state_.receiver_.receiver_);
       }
@@ -102,7 +106,7 @@ template <class SenderId>
       -> stream_op_state_t<std::__member_t<Self, Sender>, receiver_t<Receiver>, transfer::sink_receiver_t<std::__x<Receiver>>> {
         return stream_op_state<std::__member_t<Self, Sender>>(
           self.hub_,
-          ((Self&&)self).sndr_, 
+          ((Self&&)self).sndr_,
           transfer::sink_receiver_t<std::__x<Receiver>>{{}, (Receiver&&)rcvr},
           [&](operation_state_base_t<std::__x<transfer::sink_receiver_t<std::__x<Receiver>>>>& stream_provider) -> receiver_t<Receiver> {
             return receiver_t<Receiver>{{}, stream_provider};

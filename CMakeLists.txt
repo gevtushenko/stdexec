@@ -121,6 +121,11 @@ target_compile_options(p2300_executable_flags INTERFACE
                        $<$<CXX_COMPILER_ID:MSVC>:
                        /W4>)
 
+# Increase the error limit with NVC++
+target_compile_options(p2300_executable_flags INTERFACE
+                       $<$<CXX_COMPILER_ID:NVHPC>:-e1000>
+                       )
+
 # Silence warnings with GCC
 target_compile_options(p2300_executable_flags INTERFACE
                        $<$<CXX_COMPILER_ID:GNU>:-Wno-non-template-friend>

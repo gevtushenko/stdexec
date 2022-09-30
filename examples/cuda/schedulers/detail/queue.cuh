@@ -16,9 +16,11 @@
 #pragma once
 
 #include <execution.hpp>
-#include <type_traits>
 
+#include <type_traits>
 #include <cuda/atomic>
+
+#include "throw_on_cuda_error.cuh"
 
 namespace example::cuda::stream::detail {
 
@@ -34,7 +36,7 @@ namespace queue {
   struct device_deleter_t {
     template <class T>
     void operator()(T *ptr) {
-      cudaFree(ptr);
+      THROW_ON_CUDA_ERROR(cudaFree(ptr));
     }
   };
 
@@ -46,15 +48,15 @@ namespace queue {
     T h((As&&)as...);
 
     T* ptr{};
-    cudaMalloc(&ptr, sizeof(T));
-    cudaMemcpy(ptr, &h, sizeof(T), cudaMemcpyHostToDevice); // TODO Kernel + placement new?
+    THROW_ON_CUDA_ERROR(cudaMalloc(&ptr, sizeof(T)));
+    THROW_ON_CUDA_ERROR(cudaMemcpy(ptr, &h, sizeof(T), cudaMemcpyHostToDevice)); // TODO Kernel + placement new?
     return device_ptr<T>(ptr);
   }
 
   struct host_deleter_t {
     template <class T>
     void operator()(T *ptr) {
-      cudaFreeHost(ptr);
+      THROW_ON_CUDA_ERROR(cudaFreeHost(ptr));
     }
   };
 
@@ -66,7 +68,7 @@ namespace queue {
   template <class T, class... As>
   host_ptr<T> make_host(As&&... as) {
     T* ptr{};
-    cudaMallocHost(&ptr, sizeof(T));
+    THROW_ON_CUDA_ERROR(cudaMallocHost(&ptr, sizeof(T)));
     new (ptr) T((As&&)as...);
     return host_ptr<T>(ptr);
   }
@@ -75,7 +77,7 @@ namespace queue {
     task_base_t** tail_;
 
     void operator()(task_base_t* task) {
-      atom_task_ref tail_ref(*tail_); 
+      atom_task_ref tail_ref(*tail_);
       task_base_t* old_tail = tail_ref.load(::cuda::memory_order_acquire);
 
       while (true) {

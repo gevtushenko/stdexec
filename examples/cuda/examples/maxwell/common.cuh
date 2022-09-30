@@ -25,11 +25,7 @@
 #include <vector>
 #include <string.h>
 
-inline void check(cudaError_t status) {
-  if (cudaSuccess != status) {
-    throw std::runtime_error(std::string("CUDA Error: ") + cudaGetErrorString(status));
-  }
-}
+#include "schedulers/detail/throw_on_cuda_error.cuh"
 
 struct deleter_t {
   bool on_gpu{};
@@ -37,7 +33,7 @@ struct deleter_t {
   template <class T>
   void operator()(T *ptr) {
     if (on_gpu) {
-      cudaFree(ptr);
+      THROW_ON_CUDA_ERROR(cudaFree(ptr));
     }
     else {
       free(ptr);
@@ -46,12 +42,12 @@ struct deleter_t {
 };
 
 template <class T>
-inline std::unique_ptr<T, deleter_t> 
+inline std::unique_ptr<T, deleter_t>
 allocate_on(bool gpu, std::size_t elements = 1) {
   T *ptr{};
 
   if (gpu) {
-    cudaMalloc(&ptr, elements * sizeof(T));
+    THROW_ON_CUDA_ERROR(cudaMalloc(&ptr, elements * sizeof(T)));
   } else {
     ptr = reinterpret_cast<T *>(malloc(elements * sizeof(T)));
   }
@@ -114,14 +110,14 @@ struct grid_t {
 
 constexpr float C0 = 299792458.0f; // Speed of light [metres per second]
 
-__host__ __device__ inline bool 
-is_circle_part(float x, float y, 
+__host__ __device__ inline bool
+is_circle_part(float x, float y,
                float object_x, float object_y, float object_size) {
   const float os2 = object_size * object_size;
   return ((x - object_x) * (x - object_x) + (y - object_y) * (y - object_y) <= os2);
 }
 
-__host__ __device__ inline float 
+__host__ __device__ inline float
 calculate_dt(float dx, float dy) {
   const float cfl = 0.3;
   return cfl * std::min(dx, dy) / C0;
@@ -131,7 +127,7 @@ struct grid_initializer_t {
   float dt;
   fields_accessor accessor;
 
-  __host__ __device__ void 
+  __host__ __device__ void
   operator()(std::size_t cell_id) const {
     const std::size_t row = cell_id / accessor.n;
     const std::size_t column = cell_id % accessor.n;
@@ -177,22 +173,22 @@ grid_initializer(float dt, fields_accessor accessor) {
   return {dt, accessor};
 }
 
-__host__ __device__ inline std::size_t 
+__host__ __device__ inline std::size_t
 right_nid(std::size_t cell_id, std::size_t col, std::size_t N) {
   return col == N - 1 ? cell_id - (N - 1) : cell_id + 1;
 }
 
-__host__ __device__ inline std::size_t 
+__host__ __device__ inline std::size_t
 left_nid(std::size_t cell_id, std::size_t col, std::size_t N) {
   return col == 0 ? cell_id + N - 1 : cell_id - 1;
 }
 
-__host__ __device__ inline std::size_t 
+__host__ __device__ inline std::size_t
 bottom_nid(std::size_t cell_id, std::size_t row, std::size_t N) {
   return row == 0 ? cell_id + N * (N - 1) : cell_id - N;
 }
 
-__host__ __device__ inline std::size_t 
+__host__ __device__ inline std::size_t
 top_nid(std::size_t cell_id, std::size_t row, std::size_t N) {
   return row == N - 1 ? cell_id - N * (N - 1) : cell_id + N;
 }
@@ -200,7 +196,7 @@ top_nid(std::size_t cell_id, std::size_t row, std::size_t N) {
 struct h_field_calculator_t {
   fields_accessor accessor;
 
-  __host__ __device__ void 
+  __host__ __device__ void
   operator()(std::size_t cell_id) const __attribute__((always_inline)) {
     const std::size_t N = accessor.n;
     const std::size_t column = cell_id % N;
@@ -228,7 +224,7 @@ struct e_field_calculator_t {
   fields_accessor accessor;
   std::size_t source_position;
 
-  [[nodiscard]] __host__ __device__ float 
+  [[nodiscard]] __host__ __device__ float
   gaussian_pulse(float t, float t_0, float tau) const {
     return exp(-(((t - t_0) / tau) * (t - t_0) / tau));
   }
@@ -240,7 +236,7 @@ struct e_field_calculator_t {
     return gaussian_pulse(t, t_0, tau);
   }
 
-  __host__ __device__ void 
+  __host__ __device__ void
   operator()(std::size_t cell_id) const __attribute__((always_inline)) {
     const std::size_t N = accessor.n;
     const std::size_t column = cell_id % N;
@@ -275,10 +271,10 @@ update_e(float *time, float dt, fields_accessor accessor) {
   return {dt, time, accessor, source_position};
 }
 
-bool inline 
+bool inline
 is_cpu_pointer(const void *ptr) {
   cudaPointerAttributes attributes{};
-  check(cudaPointerGetAttributes(&attributes, ptr));
+  THROW_ON_CUDA_ERROR(cudaPointerGetAttributes(&attributes, ptr));
 
   return attributes.type == cudaMemoryTypeHost ||
          attributes.type == cudaMemoryTypeUnregistered;
@@ -301,10 +297,10 @@ class result_dumper_t {
 
     if (fetch_results_from_gpu_) {
       h_ez = std::make_unique<float[]>(accessor_.cells);
-      cudaMemcpy(h_ez.get(),
-                 accessor_.get(field_id::ez),
-                 sizeof(float) * (accessor_.cells),
-                 cudaMemcpyDefault);
+      THROW_ON_CUDA_ERROR(cudaMemcpy(h_ez.get(),
+                                     accessor_.get(field_id::ez),
+                                     sizeof(float) * (accessor_.cells),
+                                     cudaMemcpyDefault));
       ez = h_ez.get();
     }
 
@@ -376,7 +372,7 @@ public:
                   fields_accessor accessor)
     : write_results_(write_results)
     , report_step_(report_step)
-    , accessor_(accessor) 
+    , accessor_(accessor)
     , fetch_results_from_gpu_(!is_cpu_pointer(accessor.get(field_id::ez))) {
   }
 
@@ -394,7 +390,7 @@ public:
   }
 };
 
-inline result_dumper_t 
+inline result_dumper_t
 dump_vtk(bool write_results, std::size_t &report_step, fields_accessor accessor) {
   return {write_results, report_step, accessor};
 }
@@ -403,7 +399,7 @@ class time_storage_t {
   std::unique_ptr<float, deleter_t> time_{};
 
 public:
-  explicit time_storage_t(bool gpu) 
+  explicit time_storage_t(bool gpu)
     : time_(allocate_on<float>(gpu)) {
   }
 
@@ -414,16 +410,16 @@ std::string bin_name(int node_id) {
   return "out_" + std::to_string(node_id) + ".bin";
 }
 
-inline void 
+inline void
 copy_to_host(void *to, const void *from, std::size_t bytes) {
   if (is_cpu_pointer(from)) {
     memcpy(to, from, bytes);
   } else {
-    cudaMemcpy(to, from, bytes, cudaMemcpyDeviceToHost);
+    THROW_ON_CUDA_ERROR(cudaMemcpy(to, from, bytes, cudaMemcpyDeviceToHost));
   }
 }
 
-inline void 
+inline void
 store_results(fields_accessor accessor) {
   const int node_id = 0;
   const int n_nodes = 1;
@@ -449,12 +445,12 @@ store_results(fields_accessor accessor) {
     bin.write(reinterpret_cast<const char *>(ez), n_bytes);
   } else {
     std::unique_ptr<char[]> h_ez = std::make_unique<char[]>(n_bytes);
-    cudaMemcpy(h_ez.get(), ez, n_bytes, cudaMemcpyDeviceToHost);
+    THROW_ON_CUDA_ERROR(cudaMemcpy(h_ez.get(), ez, n_bytes, cudaMemcpyDeviceToHost));
     bin.write(h_ez.get(), n_bytes);
   }
 }
 
-inline void 
+inline void
 report_header() {
   std::cout << std::fixed << std::showpoint
             << std::setw(24) << "method" << ", "
@@ -491,7 +487,7 @@ bool contains(std::string_view str, char c) {
   return str.find(c) != std::string_view::npos;
 }
 
-std::pair<std::string_view, std::string_view> 
+std::pair<std::string_view, std::string_view>
 split(std::string_view str, char by = '=') {
   auto it = str.find(by);
   return std::make_pair(str.substr(0, it),

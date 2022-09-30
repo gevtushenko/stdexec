@@ -45,18 +45,18 @@ void run_cuda(float dt, bool write_vtk, std::size_t n_inner_iterations,
 
   kernel<block_threads><<<grid_blocks, block_threads>>>(cells, initializer);
 
-  report_performance(grid.cells, n_inner_iterations * n_outer_iterations, method, 
+  report_performance(grid.cells, n_inner_iterations * n_outer_iterations, method,
                      [&]() {
                          for (; report_step < n_outer_iterations; report_step++) {
                            for (std::size_t compute_step = 0;
                                 compute_step < n_inner_iterations;
                                 compute_step++) {
-                             
+
                              kernel<block_threads><<<grid_blocks, block_threads>>>(cells, h_updater);
                              kernel<block_threads><<<grid_blocks, block_threads>>>(cells, e_updater);
                            }
                            writer(false);
                          }
-                         cudaStreamSynchronize(0);
+                         THROW_ON_CUDA_ERROR(cudaStreamSynchronize(0));
                      });
 }

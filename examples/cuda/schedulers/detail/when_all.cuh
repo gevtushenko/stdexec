@@ -99,7 +99,7 @@ template <class... SenderIds>
       struct operation_t;
 
     template <class CvrefReceiverId, std::size_t Index>
-      struct receiver_t 
+      struct receiver_t
         : std::execution::receiver_adaptor<receiver_t<CvrefReceiverId, Index>>
         , receiver_base_t {
         using WhenAll = std::__member_t<CvrefReceiverId, when_all_sender_t>;
@@ -198,7 +198,7 @@ template <class... SenderIds>
         static void sync(OpT& op) noexcept {
           if constexpr (std::is_base_of_v<detail::op_state_base_t, OpT>) {
             if (op.stream_) {
-              cudaStreamSynchronize(op.stream_);
+              THROW_ON_CUDA_ERROR(cudaStreamSynchronize(op.stream_));
             }
           }
         }

@@ -30,8 +30,14 @@ namespace schedule_from {
 
   template <std::size_t I, class T, class Head, class... As>
     void alloc_and_fetch_async(cudaStream_t stream, T& tpl, Head&& head, As&&... as) {
-      cudaMallocAsync(&std::get<I>(tpl), sizeof(std::decay_t<Head>), stream);
-      cudaMemcpyAsync(std::get<I>(tpl), &head, sizeof(std::decay_t<Head>), cudaMemcpyHostToDevice, stream);
+      THROW_ON_CUDA_ERROR(cudaMallocAsync(&std::get<I>(tpl),
+                                          sizeof(std::decay_t<Head>),
+                                          stream));
+      THROW_ON_CUDA_ERROR(cudaMemcpyAsync(std::get<I>(tpl),
+                                          &head,
+                                          sizeof(std::decay_t<Head>),
+                                          cudaMemcpyHostToDevice,
+                                          stream));
       alloc_and_fetch_async<I + 1>(stream, tpl, (As&&)as...);
     }
 
@@ -40,7 +46,7 @@ namespace schedule_from {
 
   template <class Head, class... As>
   void free_async(cudaStream_t stream, Head head, As... as) {
-    cudaFreeAsync(head, stream);
+    THROW_ON_CUDA_ERROR(cudaFreeAsync(head, stream));
     free_async(stream, as...);
   }
 
@@ -48,9 +54,9 @@ namespace schedule_from {
     struct receiver_t : receiver_base_t {
       operation_state_base_t<ReceiverId>& operation_state_;
 
-      template <std::__one_of<std::execution::set_value_t, 
-                              std::execution::set_error_t, 
-                              std::execution::set_stopped_t> Tag, 
+      template <std::__one_of<std::execution::set_value_t,
+                              std::execution::set_error_t,
+                              std::execution::set_stopped_t> Tag,
                 class... As  _NVCXX_CAPTURE_PACK(As)>
       friend void tag_invoke(Tag tag, receiver_t&& self, As&&... as) noexcept {
         auto stream = self.operation_state_.stream_;
@@ -66,7 +72,7 @@ namespace schedule_from {
         );
       }
 
-      friend std::execution::env_of_t<std::__t<ReceiverId>> 
+      friend std::execution::env_of_t<std::__t<ReceiverId>>
       tag_invoke(std::execution::get_env_t, const receiver_t& self) {
         return std::execution::get_env(self.operation_state_.receiver_);
       }
@@ -117,7 +123,7 @@ template <class Scheduler, class SenderId>
       -> stream_op_state_t<std::__member_t<Self, source_sender_th>, receiver_t<Receiver>, Receiver> {
         return stream_op_state<std::__member_t<Self, source_sender_th>>(
             self.hub_,
-            ((Self&&)self).sndr_, 
+            ((Self&&)self).sndr_,
             (Receiver&&)rcvr,
             [&](operation_state_base_t<std::__x<Receiver>>& stream_provider) -> receiver_t<Receiver> {
               return receiver_t<Receiver>{{}, stream_provider};

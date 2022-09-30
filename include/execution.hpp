@@ -33,8 +33,10 @@
 #include <coroutine.hpp>
 #include <stop_token.hpp>
 
+#define _STRINGIZE_IMPL(__arg) #__arg
+#define _STRINGIZE(__arg) _STRINGIZE_IMPL(__arg)
+
 #if defined(__clang__)
-#define _STRINGIZE(__arg) #__arg
 #define _PRAGMA_PUSH() _Pragma("GCC diagnostic push")
 #define _PRAGMA_POP() _Pragma("GCC diagnostic pop")
 #define _PRAGMA_IGNORE(__arg) _Pragma(_STRINGIZE(GCC diagnostic ignored __arg))
@@ -2582,7 +2584,7 @@ namespace _P2300::execution {
         [[no_unique_address]] _Fun __f_;
 
         template <class... _As>
-        void set_value(_As&&... __as) && noexcept 
+        void set_value(_As&&... __as) && noexcept
           requires __nothrow_callable<_Fun, _Shape, _As&...> {
           for (_Shape __i{}; __i != __shape_; ++__i) {
             __f_(__i, __as...);
@@ -2591,7 +2593,7 @@ namespace _P2300::execution {
         }
 
         template <class... _As>
-        void set_value(_As&&... __as) && noexcept 
+        void set_value(_As&&... __as) && noexcept
           requires __callable<_Fun, _Shape, _As&...> {
           try {
             for (_Shape __i{}; __i != __shape_; ++__i) {
@@ -2648,8 +2650,8 @@ namespace _P2300::execution {
           return execution::connect(
               ((_Self&&) __self).__sndr_,
               __receiver<_Receiver>{
-                (_Receiver&&) __rcvr, 
-                __self.__shape_, 
+                (_Receiver&&) __rcvr,
+                __self.__shape_,
                 ((_Self&&) __self).__fun_});
         }
 
