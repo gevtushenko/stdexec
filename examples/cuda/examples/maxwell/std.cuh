@@ -19,7 +19,7 @@
 
 #include <thread>
 #include <vector>
-#include <cuda/std/barrier>
+#include <barrier>
 
 template <class Shape>
 std::pair<Shape, Shape>
@@ -49,7 +49,7 @@ void run_std(float dt, bool write_vtk, std::size_t n_inner_iterations,
 
   const std::size_t n_threads = std::thread::hardware_concurrency();
   std::vector<std::thread> threads(n_threads);
-  cuda::std::barrier barrier(n_threads);
+  std::barrier barrier(n_threads);
 
   report_performance(grid.cells, n_inner_iterations * n_outer_iterations, method,
                      [&]() {

@@ -21,7 +21,7 @@
 
 namespace example::cuda {
 
-  inline void throw_on_cuda_error(cudaError_t error, char const* source_location)
+  inline void throw_on_cuda_error(cudaError_t error, char const* file_name, int line)
   {
     // Clear the global CUDA error state which may have been set by the last
     // call. Otherwise, errors may "leak" to unrelated calls.
@@ -29,7 +29,9 @@ namespace example::cuda {
 
     if (error != cudaSuccess) {
       throw std::runtime_error(std::string("CUDA Error: ")
-                             + source_location
+                             + file_name
+                             + ":"
+                             + std::to_string(line)
                              + ": "
                              + cudaGetErrorName(error)
                              + ": "
@@ -38,8 +40,7 @@ namespace example::cuda {
   }
 
   #define THROW_ON_CUDA_ERROR(...)                     \
-    ::example::cuda::throw_on_cuda_error(              \
-      __VA_ARGS__, __FILE__ ":" _STRINGIZE(__LINE__)); \
+    ::example::cuda::throw_on_cuda_error(__VA_ARGS__, __FILE__, __LINE__); \
     /**/
 
 }
