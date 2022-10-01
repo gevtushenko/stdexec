@@ -36,6 +36,8 @@ namespace reduce_ {
 
     public:
 
+      constexpr static std::size_t memory_allocation_size = 1024; // TODO Compute
+
       template <class Range>
       friend void tag_invoke(std::execution::set_value_t, receiver_t&& self, Range&& range) noexcept {
         cudaStream_t stream = self.op_state_.stream_;
@@ -46,8 +48,7 @@ namespace reduce_ {
         >;
 
         using value_t = Result;
-        value_t *d_out{};
-        THROW_ON_CUDA_ERROR(cudaMallocAsync(&d_out, sizeof(value_t), stream));
+        value_t *d_out = reinterpret_cast<value_t*>(self.op_state_.temp_storage_);
 
         void *d_temp_storage{};
         std::size_t temp_storage_size{};
@@ -68,8 +69,6 @@ namespace reduce_ {
         THROW_ON_CUDA_ERROR(cudaFreeAsync(d_temp_storage, stream));
 
         self.op_state_.propagate_completion_signal(std::execution::set_value, *d_out);
-
-        THROW_ON_CUDA_ERROR(cudaFreeAsync(d_out, stream));
       }
 
       template <std::__one_of<std::execution::set_error_t,

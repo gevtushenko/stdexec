@@ -26,7 +26,7 @@ namespace stream = example::cuda::stream;
 
 int main() {
   const int n = 2 * 1024;
-  thrust::device_vector<int> input(n);
+  thrust::device_vector<int> input(n, 1);
   int* first = thrust::raw_pointer_cast(input.data());
   int* last  = thrust::raw_pointer_cast(input.data()) + input.size();
 
