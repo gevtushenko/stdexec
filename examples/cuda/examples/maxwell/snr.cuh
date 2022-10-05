@@ -32,15 +32,15 @@ namespace repeat_n_detail {
     friend void tag_invoke(ex::set_value_t, sink_receiver &&, auto&&...) noexcept {}
     friend void tag_invoke(ex::set_error_t, sink_receiver &&, auto&&) noexcept {}
     friend void tag_invoke(ex::set_stopped_t, sink_receiver &&) noexcept {}
-    friend _P2300::execution::__empty_env tag_invoke(ex::get_env_t, sink_receiver) noexcept {
+    friend stdexec::__empty_env tag_invoke(ex::get_env_t, sink_receiver) noexcept {
       return {};
     }
   };
 
   template <class SenderId, class ReceiverId>
     struct operation_state_t {
-      using Sender = _P2300::__t<SenderId>;
-      using Receiver = _P2300::__t<ReceiverId>;
+      using Sender = stdexec::__t<SenderId>;
+      using Receiver = stdexec::__t<ReceiverId>;
 
       Sender sender_;
       Receiver receiver_;
@@ -72,7 +72,7 @@ namespace repeat_n_detail {
 
   template <class SenderId>
     struct repeat_n_sender_t {
-      using Sender = _P2300::__t<SenderId>;
+      using Sender = stdexec::__t<SenderId>;
 
       using completion_signatures = std::execution::completion_signatures<
         std::execution::set_value_t(),
@@ -81,17 +81,17 @@ namespace repeat_n_detail {
       Sender sender_;
       std::size_t n_{};
 
-      template <_P2300::__decays_to<repeat_n_sender_t> Self, class Receiver>
+      template <stdexec::__decays_to<repeat_n_sender_t> Self, class Receiver>
         requires std::tag_invocable<std::execution::connect_t, Sender, Receiver> friend auto
       tag_invoke(std::execution::connect_t, Self &&self, Receiver &&r)
-        -> operation_state_t<SenderId, _P2300::__x<Receiver>> {
-        return operation_state_t<SenderId, _P2300::__x<Receiver>>(
+        -> operation_state_t<SenderId, stdexec::__x<Receiver>> {
+        return operation_state_t<SenderId, stdexec::__x<Receiver>>(
           (Sender&&)self.sender_,
           (Receiver&&)r,
           self.n_);
       }
 
-      template <_P2300::__none_of<std::execution::connect_t> Tag, class... Ts>
+      template <stdexec::__none_of<std::execution::connect_t> Tag, class... Ts>
         requires std::tag_invocable<Tag, Sender, Ts...> friend decltype(auto)
       tag_invoke(Tag tag, const repeat_n_sender_t &s, Ts &&...ts) noexcept {
         return tag(s.sender_, std::forward<Ts>(ts)...);
@@ -100,8 +100,8 @@ namespace repeat_n_detail {
 
   struct repeat_n_t {
     template <class Sender>
-    repeat_n_sender_t<_P2300::__x<Sender>> operator()(std::size_t n, Sender &&__sndr) const noexcept {
-      return repeat_n_sender_t<_P2300::__x<Sender>>{std::forward<Sender>(__sndr), n};
+    repeat_n_sender_t<stdexec::__x<Sender>> operator()(std::size_t n, Sender &&__sndr) const noexcept {
+      return repeat_n_sender_t<stdexec::__x<Sender>>{std::forward<Sender>(__sndr), n};
     }
   };
 

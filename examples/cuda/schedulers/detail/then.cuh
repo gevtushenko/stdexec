@@ -38,7 +38,7 @@ template <class Fun, class ResultT, class... As>
 
 template <std::size_t MemoryAllocationSize, class ReceiverId, class Fun>
   class receiver_t : receiver_base_t {
-    using Receiver = _P2300::__t<ReceiverId>;
+    using Receiver = stdexec::__t<ReceiverId>;
 
     Fun f_;
     operation_state_base_t<ReceiverId> &op_state_;
@@ -48,7 +48,7 @@ template <std::size_t MemoryAllocationSize, class ReceiverId, class Fun>
 
     template <class... As _NVCXX_CAPTURE_PACK(As)>
       friend void tag_invoke(std::execution::set_value_t, receiver_t&& self, As&&... as)
-        noexcept requires _P2300::__callable<Fun, As...> {
+        noexcept requires stdexec::__callable<Fun, As...> {
 
         _NVCXX_EXPAND_PACK(As, as,
           using result_t = std::decay_t<std::invoke_result_t<Fun, As...>>;
@@ -66,7 +66,7 @@ template <std::size_t MemoryAllocationSize, class ReceiverId, class Fun>
         );
       }
 
-    template <_P2300::__one_of<std::execution::set_error_t,
+    template <stdexec::__one_of<std::execution::set_error_t,
                             std::execution::set_stopped_t> Tag,
               class... As _NVCXX_CAPTURE_PACK(As)>
       friend void tag_invoke(Tag tag, receiver_t&& self, As&&... as) noexcept {
@@ -89,99 +89,99 @@ template <std::size_t MemoryAllocationSize, class ReceiverId, class Fun>
 
 template <class SenderId, class FunId>
   struct then_sender_t : gpu_sender_base_t {
-    using Sender = _P2300::__t<SenderId>;
-    using Fun = _P2300::__t<FunId>;
+    using Sender = stdexec::__t<SenderId>;
+    using Fun = stdexec::__t<FunId>;
 
     Sender sndr_;
     Fun fun_;
 
     template <class T, int = 0>
       struct size_of_ {
-        using __t = _P2300::__index<sizeof(T)>;
+        using __t = stdexec::__index<sizeof(T)>;
       };
 
     template <int W>
       struct size_of_<void, W> {
-        using __t = _P2300::__index<0>;
+        using __t = stdexec::__index<0>;
       };
     
     template <class... As>
       struct result_size_for {
-        using __t = typename size_of_<_P2300::__call_result_t<Fun, As...>>::__t;
+        using __t = typename size_of_<stdexec::__call_result_t<Fun, As...>>::__t;
       };
 
     template <class... Sizes>
       struct max_in_pack {
-        static constexpr std::size_t value = std::max({std::size_t{}, _P2300::__v<Sizes>...});
+        static constexpr std::size_t value = std::max({std::size_t{}, stdexec::__v<Sizes>...});
       };
 
     template <class Receiver>
         requires std::execution::sender<Sender, std::execution::env_of_t<Receiver>>
       struct max_result_size {
         template <class... _As>
-          using result_size_for_t = _P2300::__t<result_size_for<_As...>>;
+          using result_size_for_t = stdexec::__t<result_size_for<_As...>>;
 
         static constexpr std::size_t value =
-          _P2300::__v<
-            _P2300::execution::__gather_sigs_t<
+          stdexec::__v<
+            stdexec::__gather_sigs_t<
               std::execution::set_value_t, 
               Sender,  
               std::execution::env_of_t<Receiver>, 
-              _P2300::__q<result_size_for_t>, 
-              _P2300::__q<max_in_pack>>>;
+              stdexec::__q<result_size_for_t>, 
+              stdexec::__q<max_in_pack>>>;
       };
 
     template <class Receiver>
       using receiver_t = 
         then::receiver_t<
           max_result_size<Receiver>::value, 
-          _P2300::__x<Receiver>, Fun>;
+          stdexec::__x<Receiver>, Fun>;
 
     template <class Fun, class... Args>
         requires std::invocable<Fun, Args...>
       using set_value_invoke_t =
         std::execution::completion_signatures<
-          _P2300::__minvoke1<
-            _P2300::__remove<void, _P2300::__qf<std::execution::set_value_t>>,
+          stdexec::__minvoke1<
+            stdexec::__remove<void, stdexec::__qf<std::execution::set_value_t>>,
             std::add_lvalue_reference_t<std::invoke_result_t<Fun, Args...>>>>;
 
     template <class Self, class Env>
       using completion_signatures =
-        _P2300::execution::__make_completion_signatures<
-          _P2300::__member_t<Self, Sender>,
+        stdexec::__make_completion_signatures<
+          stdexec::__member_t<Self, Sender>,
           Env,
-          _P2300::execution::__with_error_invoke_t<
+          stdexec::__with_error_invoke_t<
             std::execution::set_value_t,
             Fun,
-            _P2300::__member_t<Self, Sender>,
+            stdexec::__member_t<Self, Sender>,
             Env>,
-          _P2300::__mbind_front_q<_P2300::execution::__set_value_invoke_t, Fun>>;
+          stdexec::__mbind_front_q<stdexec::__set_value_invoke_t, Fun>>;
 
-    template <_P2300::__decays_to<then_sender_t> Self, std::execution::receiver Receiver>
+    template <stdexec::__decays_to<then_sender_t> Self, std::execution::receiver Receiver>
       requires std::execution::receiver_of<Receiver, completion_signatures<Self, std::execution::env_of_t<Receiver>>>
     friend auto tag_invoke(std::execution::connect_t, Self&& self, Receiver&& rcvr)
-      -> stream_op_state_t<_P2300::__member_t<Self, Sender>, receiver_t<Receiver>, Receiver> {
-        return stream_op_state<_P2300::__member_t<Self, Sender>>(
+      -> stream_op_state_t<stdexec::__member_t<Self, Sender>, receiver_t<Receiver>, Receiver> {
+        return stream_op_state<stdexec::__member_t<Self, Sender>>(
           ((Self&&)self).sndr_,
           (Receiver&&)rcvr,
-          [&](operation_state_base_t<_P2300::__x<Receiver>>& stream_provider) -> receiver_t<Receiver> {
+          [&](operation_state_base_t<stdexec::__x<Receiver>>& stream_provider) -> receiver_t<Receiver> {
             return receiver_t<Receiver>(self.fun_, stream_provider);
           });
     }
 
-    template <_P2300::__decays_to<then_sender_t> Self, class Env>
+    template <stdexec::__decays_to<then_sender_t> Self, class Env>
     friend auto tag_invoke(std::execution::get_completion_signatures_t, Self&&, Env)
       -> std::execution::dependent_completion_signatures<Env>;
 
-    template <_P2300::__decays_to<then_sender_t> Self, class Env>
+    template <stdexec::__decays_to<then_sender_t> Self, class Env>
     friend auto tag_invoke(std::execution::get_completion_signatures_t, Self&&, Env)
       -> completion_signatures<Self, Env> requires true;
 
-    template <_P2300::execution::tag_category<std::execution::forwarding_sender_query> Tag, class... As>
-      requires _P2300::__callable<Tag, const Sender&, As...>
+    template <stdexec::tag_category<std::execution::forwarding_sender_query> Tag, class... As>
+      requires stdexec::__callable<Tag, const Sender&, As...>
     friend auto tag_invoke(Tag tag, const then_sender_t& self, As&&... as)
-      noexcept(_P2300::__nothrow_callable<Tag, const Sender&, As...>)
-      -> _P2300::__call_result_if_t<_P2300::execution::tag_category<Tag, std::execution::forwarding_sender_query>, Tag, const Sender&, As...> {
+      noexcept(stdexec::__nothrow_callable<Tag, const Sender&, As...>)
+      -> stdexec::__call_result_if_t<stdexec::tag_category<Tag, std::execution::forwarding_sender_query>, Tag, const Sender&, As...> {
       return ((Tag&&) tag)(self.sndr_, (As&&) as...);
     }
   };
