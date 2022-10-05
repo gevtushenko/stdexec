@@ -99,11 +99,11 @@ template <class SenderId>
           _P2300::__member_t<_Self, Sender>,
           _Env> requires true;
 
-    template <std::execution::tag_category<std::execution::forwarding_sender_query> Tag, class... As>
+    template <_P2300::execution::tag_category<std::execution::forwarding_sender_query> Tag, class... As>
       requires _P2300::__callable<Tag, const Sender&, As...>
     friend auto tag_invoke(Tag tag, const transfer_sender_t& self, As&&... as)
       noexcept(_P2300::__nothrow_callable<Tag, const Sender&, As...>)
-      -> _P2300::__call_result_if_t<std::execution::tag_category<Tag, std::execution::forwarding_sender_query>, Tag, const Sender&, As...> {
+      -> _P2300::__call_result_if_t<_P2300::execution::tag_category<Tag, std::execution::forwarding_sender_query>, Tag, const Sender&, As...> {
       return ((Tag&&) tag)(self.sndr_, (As&&) as...);
     }
 
