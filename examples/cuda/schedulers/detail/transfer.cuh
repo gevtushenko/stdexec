@@ -18,6 +18,7 @@
 #include <execution.hpp>
 #include <type_traits>
 
+#include "__detail/__p2300.hpp"
 #include "common.cuh"
 
 namespace example::cuda::stream {
@@ -29,12 +30,8 @@ namespace transfer {
     using Receiver = stdexec::__t<ReceiverId>;
     Receiver receiver_;
 
-    template <class Tag, class... As _NVCXX_CAPTURE_PACK(As)>
-      friend void tag_invoke(Tag, sink_receiver_t&& __rcvr, As&&... as) noexcept {
-        _NVCXX_EXPAND_PACK(As, as,
-
-        );
-      }
+    template <class Tag, class... As>
+      friend void tag_invoke(Tag, sink_receiver_t&& __rcvr, As&&... as) noexcept {}
 
     friend std::execution::env_of_t<Receiver> tag_invoke(std::execution::get_env_t, const sink_receiver_t& self) noexcept {
       return std::execution::get_env(self.receiver_);
@@ -47,16 +44,18 @@ namespace transfer {
       operation_state_base_t<ReceiverId>& operation_state_;
 
       template <stdexec::__one_of<std::execution::set_value_t,
-                              std::execution::set_error_t,
-                              std::execution::set_stopped_t> Tag,
+                                  std::execution::set_error_t,
+                                  std::execution::set_stopped_t> Tag,
                 class... As _NVCXX_CAPTURE_PACK(As)>
       friend void tag_invoke(Tag tag, bypass_receiver_t&& self, As&&... as) noexcept {
         auto stream = self.operation_state_.stream_;
-        THROW_ON_CUDA_ERROR(cudaStreamSynchronize(stream));
-
-        _NVCXX_EXPAND_PACK(As, as,
-          tag(std::move(self.operation_state_.receiver_.receiver_), (As&&)as...);
-        );
+        if (cudaError_t status = STDEXEC_DBG_ERR(cudaStreamSynchronize(stream)); status == cudaSuccess) {
+          _NVCXX_EXPAND_PACK(As, as,
+            tag(std::move(self.operation_state_.receiver_.receiver_), (As&&)as...);
+          );
+        } else {
+          std::execution::set_error(std::move(self.operation_state_.receiver_.receiver_), std::move(status));
+        }
       }
 
       friend std::execution::env_of_t<typename stdexec::__t<ReceiverId>::Receiver>
@@ -97,7 +96,11 @@ template <class SenderId>
       friend auto tag_invoke(std::execution::get_completion_signatures_t, _Self&&, _Env) ->
         std::execution::make_completion_signatures<
           stdexec::__member_t<_Self, Sender>,
-          _Env> requires true;
+          _Env,
+          std::execution::completion_signatures<
+            std::execution::set_error_t(cudaError_t)
+          >
+        > requires true;
 
     template <stdexec::tag_category<std::execution::forwarding_sender_query> Tag, class... As>
       requires stdexec::__callable<Tag, const Sender&, As...>

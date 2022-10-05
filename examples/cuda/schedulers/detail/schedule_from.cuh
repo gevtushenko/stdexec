@@ -59,7 +59,6 @@ namespace schedule_from {
           Sender,
           std::execution::env_of_t<Receiver>,
           stdexec::__transform<
-            // stdexec::__mbind_front<stdexec::__replace<std::exception_ptr, cudaError_t, stdexec::__q<decayed_tuple>>, std::execution::set_error_t>,
             stdexec::__mbind_front_q<decayed_tuple, std::execution::set_error_t>,
             bound_values_t>>;
 
@@ -77,10 +76,9 @@ namespace schedule_from {
           storage_t *storage = reinterpret_cast<storage_t*>(self.operation_state_.temp_storage_);
           storage->template emplace<decayed_tuple<Tag, As...>>(Tag{}, (As&&)as...);
 
-          visit([&](auto& tpl) {
-            apply([&](auto tag, auto&&... tas) {
-              self.operation_state_.template propagate_completion_signal(
-                  tag, (std::decay_t<decltype(tas)>&)tas...);
+          visit([&](auto& tpl) noexcept {
+            apply([&](auto tag, auto&... tas) noexcept {
+              self.operation_state_.template propagate_completion_signal(tag, tas...);
             }, tpl);
           }, *storage);
         );
@@ -121,7 +119,7 @@ namespace schedule_from {
 }
 
 template <class Scheduler, class SenderId>
-  struct schedule_from_sender_t : gpu_sender_base_t {
+  struct schedule_from_sender_t : sender_base_t {
     using Sender = stdexec::__t<SenderId>;
     using source_sender_th = schedule_from::source_sender_t<Sender>;
 
@@ -165,7 +163,8 @@ template <class Scheduler, class SenderId>
       friend auto tag_invoke(std::execution::get_completion_signatures_t, _Self&&, _Env) ->
         std::execution::make_completion_signatures<
           stdexec::__member_t<_Self, Sender>,
-          _Env>;
+          _Env,
+          std::execution::completion_signatures<std::execution::set_error_t(cudaError_t)>>;
 
     schedule_from_sender_t(detail::queue::task_hub_t* hub, Sender sndr)
       : hub_(hub)
