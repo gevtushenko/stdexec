@@ -16,7 +16,6 @@
 #pragma once
 
 #include "common.cuh"
-#include "schedulers/detail/throw_on_cuda_error.cuh"
 
 // #include <schedulers/stream.cuh>
 #include <schedulers/inline_scheduler.hpp>

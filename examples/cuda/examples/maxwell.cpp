@@ -18,7 +18,6 @@
 #include "maxwell/std.cuh"
 #include "maxwell/stdpar.cuh"
 #include "maxwell/cpp.cuh"
-#include "maxwell/cuda.cuh"
 
 int main(int argc, char *argv[]) {
   auto params = parse_cmd(argc, argv);
@@ -72,26 +71,6 @@ int main(int argc, char *argv[]) {
     run_snr_on("CPU (snr thread pool)", pool.get_scheduler());
   }
 
-  if (value(params, "run-cuda")) {
-    grid_t grid{N, true /* gpu */};
-
-    auto accessor = grid.accessor();
-    auto dt = calculate_dt(accessor.dx, accessor.dy);
-
-    run_cuda(dt, write_vtk, n_inner_iterations, n_outer_iterations, grid, "GPU (cuda)");
-
-    if (write_results) {
-      store_results(accessor);
-    }
-  }
-
-  #ifdef _NVHPC_CUDA
-  if (value(params, "run-stream-scheduler")) {
-    stream::context_t stream_context{};
-    run_snr_on("GPU (snr cuda stream)", stream_context.get_scheduler());
-  }
-  #endif
-
   // Naive
   if (value(params, "run-std")) {
     grid_t grid{N, false /* !gpu */};
@@ -106,7 +85,6 @@ int main(int argc, char *argv[]) {
     }
   }
 
-  #ifdef _NVHPC_CUDA
   if (value(params, "run-stdpar")) {
     const bool gpu = is_gpu_policy(std::execution::par_unseq);
     std::string_view method = gpu ? "GPU (stdpar)" : "CPU (stdpar)";
@@ -121,7 +99,6 @@ int main(int argc, char *argv[]) {
       store_results(accessor);
     }
   }
-  #endif
 
   if (value(params, "run-cpp")) {
     grid_t grid{N, false /* !gpu */};

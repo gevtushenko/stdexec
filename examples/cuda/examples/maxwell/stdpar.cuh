@@ -25,10 +25,9 @@
 
 template <class Policy>
 bool is_gpu_policy(Policy&& policy) {
-  return true;
+  return false;
 }
 
-#ifdef _NVHPC_CUDA
 template <class Policy>
 void run_stdpar(float dt, bool write_vtk, std::size_t n_inner_iterations,
                 std::size_t n_outer_iterations, grid_t &grid,
@@ -59,5 +58,4 @@ void run_stdpar(float dt, bool write_vtk, std::size_t n_inner_iterations,
                        }
                      });
 }
-#endif
 

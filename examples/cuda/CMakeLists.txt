@@ -18,11 +18,8 @@ if (CMAKE_CXX_COMPILER_ID STREQUAL "NVHPC" OR P2300_ENABLE_CUDA)
           target_compile_options(CUDASchedulers INTERFACE --cuda-gpu-arch=sm_${arch})
         endforeach()
       elseif (CMAKE_CXX_COMPILER_ID STREQUAL "NVHPC")
-        target_compile_options(CUDASchedulers INTERFACE -stdpar -gpu=nomanaged)
-        target_link_options(CUDASchedulers INTERFACE -stdpar -gpu=nomanaged)
-        foreach(arch IN LISTS CMAKE_CUDA_ARCHITECTURES)
-          target_compile_options(CUDASchedulers INTERFACE -gpu=cc${arch})
-        endforeach()
+        target_compile_options(CUDASchedulers INTERFACE -stdpar=multicore -O3 -fopenmp)
+        target_link_options(CUDASchedulers INTERFACE -stdpar=multicore -O3 -fopenmp)
       endif()
 
       # Tests

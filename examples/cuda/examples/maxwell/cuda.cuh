@@ -16,7 +16,6 @@
 #pragma once
 
 #include "common.cuh"
-#include "schedulers/detail/throw_on_cuda_error.cuh"
 
 template <int BlockThreads, class Action>
 __launch_bounds__(BlockThreads)
@@ -58,6 +57,6 @@ void run_cuda(float dt, bool write_vtk, std::size_t n_inner_iterations,
                            }
                            writer(false);
                          }
-                         STDEXEC_DBG_ERR(cudaStreamSynchronize(0));
+                         cudaStreamSynchronize(0);
                      });
 }
