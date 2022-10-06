@@ -19,11 +19,13 @@
 #include "schedulers/detail/throw_on_cuda_error.cuh"
 
 #include <schedulers/stream.cuh>
+#include <schedulers/multi_gpu.cuh>
 #include <schedulers/inline_scheduler.hpp>
 #include <schedulers/static_thread_pool.hpp>
 
 namespace ex = std::execution;
 namespace stream = example::cuda::stream;
+namespace multi_gpu = example::cuda::multi_gpu;
 
 using example::cuda::is_on_gpu;
 
