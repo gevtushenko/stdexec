@@ -85,6 +85,7 @@ int main(int argc, char *argv[]) {
     }
   }
 
+#if 0
   if (value(params, "run-stdpar")) {
     const bool gpu = is_gpu_policy(std::execution::par_unseq);
     std::string_view method = gpu ? "GPU (stdpar)" : "CPU (stdpar)";
@@ -99,6 +100,7 @@ int main(int argc, char *argv[]) {
       store_results(accessor);
     }
   }
+#endif
 
   if (value(params, "run-cpp")) {
     grid_t grid{N, false /* !gpu */};
