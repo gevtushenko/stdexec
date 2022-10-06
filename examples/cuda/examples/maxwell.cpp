@@ -85,10 +85,12 @@ int main(int argc, char *argv[]) {
     }
   }
 
+  #ifdef _NVHPC_CUDA
   if (value(params, "run-stream-scheduler")) {
     stream::context_t stream_context{};
     run_snr_on("GPU (snr cuda stream)", stream_context.get_scheduler());
   }
+  #endif
 
   // Naive
   if (value(params, "run-std")) {

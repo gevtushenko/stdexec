@@ -18,25 +18,16 @@
 #include "common.cuh"
 #include "schedulers/detail/throw_on_cuda_error.cuh"
 
-#include <schedulers/stream.cuh>
+// #include <schedulers/stream.cuh>
 #include <schedulers/inline_scheduler.hpp>
 #include <schedulers/static_thread_pool.hpp>
 
 namespace ex = std::execution;
-namespace stream = example::cuda::stream;
+// namespace stream = example::cuda::stream;
 
-using example::cuda::is_on_gpu;
+bool is_on_gpu() { return false; }
 
 namespace repeat_n_detail {
-
-  struct sink_receiver : stream::receiver_base_t {
-    friend void tag_invoke(ex::set_value_t, sink_receiver &&, auto&&...) noexcept {}
-    friend void tag_invoke(ex::set_error_t, sink_receiver &&, auto&&) noexcept {}
-    friend void tag_invoke(ex::set_stopped_t, sink_receiver &&) noexcept {}
-    friend ex::__empty_env tag_invoke(ex::get_env_t, sink_receiver) noexcept {
-      return {};
-    }
-  };
 
   template <class SenderId, class ReceiverId>
     struct operation_state_t {
@@ -49,17 +40,8 @@ namespace repeat_n_detail {
 
       friend void
       tag_invoke(std::execution::start_t, operation_state_t &self) noexcept {
-        using inner_op_state_t = ex::connect_result_t<Sender, sink_receiver>;
-        if constexpr (std::is_base_of_v<stream::detail::op_state_base_t, inner_op_state_t>) {
-          inner_op_state_t op_state = ex::connect((Sender&&)self.sender_, sink_receiver{});
-          for (std::size_t i = 0; i < self.n_; i++) {
-            ex::start(op_state);
-          }
-          STDEXEC_DBG_ERR(cudaStreamSynchronize(op_state.stream_));
-        } else {
-          for (std::size_t i = 0; i < self.n_; i++) {
-            std::this_thread::sync_wait((Sender&&)self.sender_);
-          }
+        for (std::size_t i = 0; i < self.n_; i++) {
+          std::this_thread::sync_wait((Sender&&)self.sender_);
         }
         ex::set_value((Receiver&&)self.receiver_);
       }
@@ -72,7 +54,7 @@ namespace repeat_n_detail {
     };
 
   template <class SenderId>
-    struct repeat_n_sender_t : stream::sender_base_t {
+    struct repeat_n_sender_t {
       using Sender = _P2300::__t<SenderId>;
 
       using completion_signatures = std::execution::completion_signatures<
@@ -102,7 +84,7 @@ namespace repeat_n_detail {
   struct repeat_n_t {
     template <class Sender>
     repeat_n_sender_t<_P2300::__x<Sender>> operator()(std::size_t n, Sender &&__sndr) const noexcept {
-      return repeat_n_sender_t<_P2300::__x<Sender>>{{}, std::forward<Sender>(__sndr), n};
+      return repeat_n_sender_t<_P2300::__x<Sender>>{std::forward<Sender>(__sndr), n};
     }
   };
 

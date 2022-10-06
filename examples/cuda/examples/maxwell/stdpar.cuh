@@ -16,8 +16,6 @@
 #pragma once
 
 #include "common.cuh"
-#include "schedulers/detail/common.cuh"
-#include "schedulers/detail/throw_on_cuda_error.cuh"
 
 #include <ranges>
 #include <algorithm>
@@ -27,16 +25,7 @@
 
 template <class Policy>
 bool is_gpu_policy(Policy&& policy) {
-  bool* flag{};
-  STDEXEC_DBG_ERR(cudaMallocHost(&flag, sizeof(bool)));
-  std::for_each(policy, flag, flag + 1, [](bool& f) {
-    f = example::cuda::is_on_gpu();
-  });
-
-  bool h_flag = *flag;
-  STDEXEC_DBG_ERR(cudaFreeHost(flag));
-
-  return h_flag;
+  return true;
 }
 
 #ifdef _NVHPC_CUDA
