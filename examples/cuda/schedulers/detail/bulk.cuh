@@ -195,10 +195,6 @@ namespace bulk {
           cudaStream_t baseline_stream = op_state.stream_;
           cudaEventRecord(op_state.ready_to_launch_, baseline_stream);
 
-          for (int dev = 0; dev < op_state.num_devices_; dev++) {
-            cudaStreamWaitEvent(op_state.streams_[dev], op_state.ready_to_launch_);
-          }
-
           _NVCXX_EXPAND_PACK(As, as,
             if (self.shape_) {
               constexpr int block_threads = 256;
@@ -209,6 +205,7 @@ namespace bulk {
 
                 if (begin < end) {
                   cudaSetDevice(dev);
+                  cudaStreamWaitEvent(op_state.streams_[dev], op_state.ready_to_launch_);
                   kernel
                     <block_threads, Shape, Fun, As...>
                       <<<grid_blocks, block_threads, 0, op_state.streams_[dev]>>>(
