@@ -199,25 +199,44 @@ namespace bulk {
             if (self.shape_) {
               constexpr int block_threads = 256;
               for (int dev = 0; dev < op_state.num_devices_; dev++) {
+                if (op_state.current_device_ != dev) {
+                  cudaStream_t stream = op_state.streams_[dev];
+                  auto [begin, end] = even_share(self.shape_, dev, op_state.num_devices_);
+                  auto shape = static_cast<int>(end - begin);
+                  const int grid_blocks = (shape + block_threads - 1) / block_threads;
+
+                  if (begin < end) {
+                    cudaSetDevice(dev);
+                    cudaStreamWaitEvent(stream, op_state.ready_to_launch_);
+                    kernel
+                      <block_threads, Shape, Fun, As...>
+                        <<<grid_blocks, block_threads, 0, stream>>>(
+                          begin, end, self.f_, (As&&)as...);
+                    cudaEventRecord(op_state.ready_to_complete_[dev], op_state.streams_[dev]);
+                  }
+                }
+              }
+
+              {
+                const int dev = op_state.current_device_;
+                cudaSetDevice(dev);
                 auto [begin, end] = even_share(self.shape_, dev, op_state.num_devices_);
                 auto shape = static_cast<int>(end - begin);
                 const int grid_blocks = (shape + block_threads - 1) / block_threads;
 
                 if (begin < end) {
-                  cudaSetDevice(dev);
-                  cudaStreamWaitEvent(op_state.streams_[dev], op_state.ready_to_launch_);
                   kernel
                     <block_threads, Shape, Fun, As...>
-                      <<<grid_blocks, block_threads, 0, op_state.streams_[dev]>>>(
+                      <<<grid_blocks, block_threads, 0, baseline_stream>>>(
                         begin, end, self.f_, (As&&)as...);
-                  cudaEventRecord(op_state.ready_to_complete_[dev], op_state.streams_[dev]);
                 }
               }
-            }
 
-            cudaSetDevice(op_state.current_device_);
-            for (int dev = 0; dev < op_state.num_devices_; dev++) {
-              cudaStreamWaitEvent(baseline_stream, op_state.ready_to_complete_[dev]);
+              for (int dev = 0; dev < op_state.num_devices_; dev++) {
+                if (dev != op_state.current_device_) {
+                  cudaStreamWaitEvent(baseline_stream, op_state.ready_to_complete_[dev]);
+                }
+              }
             }
 
             if (cudaError_t status = STDEXEC_DBG_ERR(cudaPeekAtLastError()); status == cudaSuccess) {
