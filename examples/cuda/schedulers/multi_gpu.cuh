@@ -248,7 +248,24 @@ namespace example::cuda::multi_gpu {
     detail::queue::task_hub_t hub{};
 
     context_t() {
+      int current_device{};
+      cudaGetDevice(&current_device);
       cudaGetDeviceCount(&num_devices);
+      
+      for (int dev_id = 0; dev_id < num_devices; dev_id++) {
+        cudaSetDevice(dev_id);
+        for (int peer_id = 0; peer_id < num_devices; peer_id++) {
+          if (peer_id != dev_id) {
+            int can_access{};
+            cudaDeviceCanAccessPeer(&can_access, dev_id, peer_id);
+
+            if (can_access) {
+              cudaDeviceEnablePeerAccess(peer_id, 0);
+            }
+          }
+        }
+      }
+      cudaSetDevice(current_device);
     }
 
     scheduler_t get_scheduler() {
