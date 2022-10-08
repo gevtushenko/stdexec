@@ -202,7 +202,7 @@ namespace distributed {
     void operator()() const {
       const std::string filename = std::string("output_") +
                                    std::to_string(rank_) + "_" +
-                                   std::to_string(report_step_++) + ".vtk";
+                                   std::to_string(report_step_) + ".vtk";
 
       write_vtk(filename);
     }
@@ -294,8 +294,8 @@ namespace distributed {
     __host__ __device__ void
     operator()(std::size_t cell_id) const __attribute__((always_inline)) {
       const std::size_t N = accessor.n;
-      const std::size_t column = cell_id % N;
-      const std::size_t row = cell_id / N;
+      const std::size_t column = (accessor.begin + cell_id) % N;
+      const std::size_t row = (accessor.begin + cell_id) / N;
       const float *ez = accessor.get(field_id::ez);
       const float cell_ez = ez[cell_id];
       const float neighbour_ex = ez[top_nid(cell_id, row, N)];
@@ -397,36 +397,66 @@ int main(int argc, char *argv[]) {
   const std::size_t n_inner_iterations = value(params, "inner-iterations", 100);
   const std::size_t n_outer_iterations = value(params, "outer-iterations", 10);
   const std::size_t global_N = value(params, "N", 512);
-  const auto [rank_begin, rank_end] = even_share(global_N * global_N, rank, size);
+  const auto [row_begin, row_end] = even_share(global_N, rank, size);
+  const std::size_t rank_begin = row_begin * global_N;
+  const std::size_t rank_end = row_end * global_N;
   distributed::grid_t grid{global_N, rank_begin, rank_end};
 
   auto accessor = grid.accessor();
   auto dt = calculate_dt(accessor.dx, accessor.dy);
 
   nvexec::stream_context stream_context{};
-  nvexec::stream_scheduler computer = stream_context.get_scheduler();
-  exec::inline_scheduler writer{};
+  nvexec::stream_scheduler gpu = stream_context.get_scheduler();
+  exec::inline_scheduler cpu{};
 
   time_storage_t time{true /* on gpu */};
 
   std::this_thread::sync_wait(
-    ex::schedule(computer) |
+    ex::schedule(gpu) |
     ex::bulk(accessor.own_cells(), distributed::grid_initializer(dt, accessor)));
+
+  const int prev_rank = rank == 0 ? size - 1 : rank - 1;
+  const int next_rank = rank == (size - 1) ? 0 : rank + 1;
+
+  {
+    MPI_Request requests[4];
+
+    MPI_Irecv(accessor.get(field_id::hx) - global_N, global_N, MPI_FLOAT, prev_rank, 0, MPI_COMM_WORLD, requests + 0);
+    MPI_Isend(accessor.get(field_id::hx) + accessor.own_cells() - global_N, global_N, MPI_FLOAT, next_rank, 0, MPI_COMM_WORLD, requests + 1);
+    MPI_Irecv(accessor.get(field_id::ez) + accessor.own_cells(), global_N, MPI_FLOAT, next_rank, 0, MPI_COMM_WORLD, requests + 2);
+    MPI_Isend(accessor.get(field_id::ez), global_N, MPI_FLOAT, prev_rank, 0, MPI_COMM_WORLD, requests + 3);
+
+    MPI_Waitall(4, requests, MPI_STATUSES_IGNORE);
+  }
 
   std::size_t report_step = 0;
   auto write = distributed::dump_vtk(write_wtk, rank, report_step, accessor);
 
-  auto snd = repeat_n(
-               n_outer_iterations,
-                 repeat_n(
-                   n_inner_iterations,
-                     ex::schedule(computer)
-                   | ex::bulk(accessor.own_cells(), distributed::update_h(accessor))
-                   | ex::bulk(accessor.own_cells(), distributed::update_e(time.get(), dt, accessor)))
-               | ex::transfer(writer)
-               | ex::then(std::move(write)));
+  for (; report_step < n_outer_iterations; report_step++) {
+    for (std::size_t compute_step = 0; compute_step < n_inner_iterations; compute_step++) {
+      auto snd = ex::schedule(gpu)
+               | ex::bulk(accessor.own_cells(), distributed::update_h(accessor))
+               | ex::transfer(cpu)
+               | ex::then([&] {
+                   MPI_Request requests[2];
+                   MPI_Irecv(accessor.get(field_id::hx) - global_N, global_N, MPI_FLOAT, prev_rank, 0, MPI_COMM_WORLD, requests + 0);
+                   MPI_Isend(accessor.get(field_id::hx) + accessor.own_cells() - global_N, global_N, MPI_FLOAT, next_rank, 0, MPI_COMM_WORLD, requests + 1);
+                   MPI_Waitall(2, requests, MPI_STATUSES_IGNORE);
+                 })
+               | ex::transfer(gpu)
+               | ex::bulk(accessor.own_cells(), distributed::update_e(time.get(), dt, accessor))
+               | ex::transfer(cpu)
+               | ex::then([&] {
+                   MPI_Request requests[2];
+                   MPI_Irecv(accessor.get(field_id::ez) + accessor.own_cells(), global_N, MPI_FLOAT, next_rank, 0, MPI_COMM_WORLD, requests + 0);
+                   MPI_Isend(accessor.get(field_id::ez), global_N, MPI_FLOAT, prev_rank, 0, MPI_COMM_WORLD, requests + 1);
+                   MPI_Waitall(2, requests, MPI_STATUSES_IGNORE);
+                 });
+      std::this_thread::sync_wait(std::move(snd)); 
+    }
 
-  std::this_thread::sync_wait(std::move(snd)); 
+    write();
+  }
 
   MPI_Finalize();
 }

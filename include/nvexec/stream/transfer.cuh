@@ -43,8 +43,8 @@ namespace transfer {
       operation_state_base_t<ReceiverId>& operation_state_;
 
       template <stdexec::__one_of<std::execution::set_value_t,
-                                 std::execution::set_error_t,
-                                 std::execution::set_stopped_t> Tag,
+                                  std::execution::set_error_t,
+                                  std::execution::set_stopped_t> Tag,
                 class... As _NVCXX_CAPTURE_PACK(As)>
       friend void tag_invoke(Tag tag, bypass_receiver_t&& self, As&&... as) noexcept {
         auto stream = self.operation_state_.stream_;
@@ -97,7 +97,8 @@ template <class SenderId>
           stdexec::__member_t<_Self, Sender>,
           _Env,
           std::execution::completion_signatures<
-            std::execution::set_error_t(cudaError_t)
+            std::execution::set_error_t(cudaError_t),
+            std::execution::set_stopped_t()
           >
         > requires true;
 
