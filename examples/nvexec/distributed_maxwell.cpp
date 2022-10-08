@@ -250,7 +250,6 @@ namespace distributed {
       }
 
       accessor.get(field_id::er)[cell_id] = er;
-      accessor.get(field_id::hr)[cell_id] = hr;
 
       accessor.get(field_id::hx)[cell_id] = {};
       accessor.get(field_id::hy)[cell_id] = {};
@@ -371,6 +370,7 @@ namespace distributed {
   }
 }
 
+// TODO Combine hz/hy in a float2 type to pass in a single MPI copy
 int main(int argc, char *argv[]) {
   int rank{};
   int size{1};

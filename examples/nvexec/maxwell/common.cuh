@@ -58,7 +58,6 @@ allocate_on(bool gpu, std::size_t elements = 1) {
 
 enum class field_id : int {
   er,
-  hr,
   mh,
   hx,
   hy,
@@ -158,7 +157,6 @@ struct grid_initializer_t {
     }
 
     accessor.get(field_id::er)[cell_id] = er;
-    accessor.get(field_id::hr)[cell_id] = hr;
 
     accessor.get(field_id::hx)[cell_id] = {};
     accessor.get(field_id::hy)[cell_id] = {};
