@@ -124,9 +124,10 @@ calculate_dt(float dx, float dy) {
   return cfl * std::min(dx, dy) / C0;
 }
 
+template <class AccessorT>
 struct grid_initializer_t {
   float dt;
-  fields_accessor accessor;
+  AccessorT accessor;
 
   __host__ __device__ void
   operator()(std::size_t cell_id) const {
@@ -169,8 +170,9 @@ struct grid_initializer_t {
   }
 };
 
-__host__ __device__ inline grid_initializer_t
-grid_initializer(float dt, fields_accessor accessor) {
+template <class AccessorT>
+__host__ __device__ inline grid_initializer_t<AccessorT>
+grid_initializer(float dt, AccessorT accessor) {
   return {dt, accessor};
 }
 
@@ -194,8 +196,9 @@ top_nid(std::size_t cell_id, std::size_t row, std::size_t N) {
   return row == N - 1 ? cell_id - N * (N - 1) : cell_id + N;
 }
 
+template <class AccessorT>
 struct h_field_calculator_t {
-  fields_accessor accessor;
+  AccessorT accessor;
 
   __host__ __device__ void
   operator()(std::size_t cell_id) const __attribute__((always_inline)) {
@@ -214,15 +217,17 @@ struct h_field_calculator_t {
   }
 };
 
-__host__ __device__ inline h_field_calculator_t
-update_h(fields_accessor accessor) {
+template <class AccessorT>
+__host__ __device__ inline h_field_calculator_t<AccessorT>
+update_h(AccessorT accessor) {
   return {accessor};
 }
 
+template <class AccessorT>
 struct e_field_calculator_t {
   float dt;
   float *time;
-  fields_accessor accessor;
+  AccessorT accessor;
   std::size_t source_position;
 
   [[nodiscard]] __host__ __device__ float
@@ -266,8 +271,9 @@ struct e_field_calculator_t {
   }
 };
 
-__host__ __device__ inline e_field_calculator_t
-update_e(float *time, float dt, fields_accessor accessor) {
+template <class AccessorT>
+__host__ __device__ inline e_field_calculator_t<AccessorT>
+update_e(float *time, float dt, AccessorT accessor) {
   std::size_t source_position = accessor.n / 2 + (accessor.n * (accessor.n / 2));
   return {dt, time, accessor, source_position};
 }

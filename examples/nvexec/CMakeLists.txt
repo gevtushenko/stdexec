@@ -1,4 +1,6 @@
 if (CMAKE_CXX_COMPILER_ID STREQUAL "NVHPC" OR STDEXEC_ENABLE_CUDA)
+  find_package(MPI REQUIRED)
+
   if(CUDAToolkit_FOUND)
       file(GLOB_RECURSE EXAMPLES
               RELATIVE "${CMAKE_CURRENT_LIST_DIR}"
@@ -11,7 +13,7 @@ if (CMAKE_CXX_COMPILER_ID STREQUAL "NVHPC" OR STDEXEC_ENABLE_CUDA)
           get_filename_component(example_name "${example_prefix}" NAME_WLE)
 
           add_executable(${example_name} ${example})
-          target_link_libraries(${example_name} PRIVATE CUDASchedulers)
+          target_link_libraries(${example_name} PRIVATE CUDASchedulers MPI::MPI_CXX)
 
           target_include_directories(${example_name} PRIVATE {CMAKE_CURRENT_LIST_DIR})
       endforeach()
