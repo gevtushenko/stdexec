@@ -15,6 +15,7 @@
  */
 
 #include "exec/inline_scheduler.hpp"
+#include "exec/static_thread_pool.hpp"
 #include "maxwell/snr.cuh"
 #include "nvexec/stream_context.cuh"
 
@@ -396,20 +397,25 @@ int main(int argc, char *argv[]) {
   const bool write_wtk = value(params, "write-vtk");
   const std::size_t n_inner_iterations = value(params, "inner-iterations", 100);
   const std::size_t n_outer_iterations = value(params, "outer-iterations", 10);
-  const std::size_t global_N = value(params, "N", 512);
-  const auto [row_begin, row_end] = even_share(global_N, rank, size);
-  const std::size_t rank_begin = row_begin * global_N;
-  const std::size_t rank_end = row_end * global_N;
-  distributed::grid_t grid{global_N, rank_begin, rank_end};
+  const std::size_t N = value(params, "N", 512);
+  const auto [row_begin, row_end] = even_share(N, rank, size);
+  const std::size_t rank_begin = row_begin * N;
+  const std::size_t rank_end = row_end * N;
+  distributed::grid_t grid{N, rank_begin, rank_end};
 
   auto accessor = grid.accessor();
   auto dt = calculate_dt(accessor.dx, accessor.dy);
 
   nvexec::stream_context stream_context{};
   nvexec::stream_scheduler gpu = stream_context.get_scheduler();
-  exec::inline_scheduler cpu{};
 
   time_storage_t time{true /* on gpu */};
+
+  auto shift = [](std::size_t shift, auto action) {
+    return [=](std::size_t cell_id) {
+      action(shift + cell_id);
+    };
+  };
 
   std::this_thread::sync_wait(
     ex::schedule(gpu) |
@@ -420,15 +426,15 @@ int main(int argc, char *argv[]) {
 
   auto exchange_hx = [&] {
      MPI_Request requests[2];
-     MPI_Irecv(accessor.get(field_id::hx) - global_N, global_N, MPI_FLOAT, prev_rank, 0, MPI_COMM_WORLD, requests + 0);
-     MPI_Isend(accessor.get(field_id::hx) + accessor.own_cells() - global_N, global_N, MPI_FLOAT, next_rank, 0, MPI_COMM_WORLD, requests + 1);
+     MPI_Irecv(accessor.get(field_id::hx) - N, N, MPI_FLOAT, prev_rank, 0, MPI_COMM_WORLD, requests + 0);
+     MPI_Isend(accessor.get(field_id::hx) + accessor.own_cells() - N, N, MPI_FLOAT, next_rank, 0, MPI_COMM_WORLD, requests + 1);
      MPI_Waitall(2, requests, MPI_STATUSES_IGNORE);
   };
 
   auto exchange_ez = [&] {
      MPI_Request requests[2];
-     MPI_Irecv(accessor.get(field_id::ez) + accessor.own_cells(), global_N, MPI_FLOAT, next_rank, 0, MPI_COMM_WORLD, requests + 0);
-     MPI_Isend(accessor.get(field_id::ez), global_N, MPI_FLOAT, prev_rank, 0, MPI_COMM_WORLD, requests + 1);
+     MPI_Irecv(accessor.get(field_id::ez) + accessor.own_cells(), N, MPI_FLOAT, next_rank, 0, MPI_COMM_WORLD, requests + 0);
+     MPI_Isend(accessor.get(field_id::ez), N, MPI_FLOAT, prev_rank, 0, MPI_COMM_WORLD, requests + 1);
      MPI_Waitall(2, requests, MPI_STATUSES_IGNORE);
   };
 
@@ -438,8 +444,39 @@ int main(int argc, char *argv[]) {
   std::size_t report_step = 0;
   auto write = distributed::dump_vtk(write_wtk, rank, report_step, accessor);
 
+#define OVERLAP
 #if defined(OVERLAP)
+  exec::static_thread_pool thread_pool_ctx{2};
+  auto cpu = thread_pool_ctx.get_scheduler();
+
+  const std::size_t border_cells = N;
+  const std::size_t bulk_cells = accessor.own_cells() - border_cells;
+
+  auto border_h_update = distributed::update_h(accessor);
+  auto bulk_h_update = shift(border_cells, distributed::update_h(accessor));
+
+  auto border_e_update = shift(bulk_cells, distributed::update_e(time.get(), dt, accessor));
+  auto bulk_e_update = distributed::update_e(time.get(), dt, accessor);
+
+  for (; report_step < n_outer_iterations; report_step++) {
+    for (std::size_t compute_step = 0; compute_step < n_inner_iterations; compute_step++) {
+      auto compute_h = ex::when_all(
+          ex::on(cpu, ex::schedule(gpu) | ex::bulk(border_cells, border_h_update) | ex::transfer(cpu) | ex::then(exchange_hx)),
+          ex::on(cpu, ex::schedule(gpu) | ex::bulk(bulk_cells,   bulk_h_update)   | ex::transfer(cpu)));
+
+      auto compute_e = ex::when_all(
+          ex::on(cpu, ex::schedule(gpu) | ex::bulk(border_cells, border_e_update) | ex::transfer(cpu) | ex::then(exchange_ez)),
+          ex::on(cpu, ex::schedule(gpu) | ex::bulk(bulk_cells,   bulk_e_update)   | ex::transfer(cpu)));
+
+      std::this_thread::sync_wait(std::move(compute_h));
+      std::this_thread::sync_wait(std::move(compute_e));
+    }
+
+    write();
+  }
 #else
+  exec::inline_scheduler cpu{};
+
   for (; report_step < n_outer_iterations; report_step++) {
     for (std::size_t compute_step = 0; compute_step < n_inner_iterations; compute_step++) {
       auto snd = ex::schedule(gpu) | ex::bulk(accessor.own_cells(), distributed::update_h(accessor))
