@@ -23,7 +23,7 @@
 #include "maxwell/cuda.cuh"
 #endif
 
-#define ENABLE_SIGNLE_THREAD_CONTEXTS 1
+#define ENABLE_SIGNLE_THREAD_CONTEXTS 0
 
 int main(int argc, char *argv[]) {
   auto params = parse_cmd(argc, argv);
