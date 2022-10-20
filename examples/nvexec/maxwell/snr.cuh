@@ -17,6 +17,7 @@
 
 #include "common.cuh"
 #include "stdexec/execution.hpp"
+#include "exec/on.hpp"
 
 
 #ifdef _NVHPC_CUDA
@@ -240,7 +241,7 @@ inline constexpr repeat_n_t repeat_n{};
 
 template <class SchedulerT>
 [[nodiscard]] bool is_gpu_scheduler(SchedulerT &&scheduler) {
-  auto snd = ex::schedule(scheduler) | ex::then([] { return nvexec::is_on_gpu(); });
+  auto snd = ex::just() | exec::on(scheduler, ex::then([] { return nvexec::is_on_gpu(); }));
   auto [on_gpu] = std::this_thread::sync_wait(std::move(snd)).value();
   return on_gpu;
 }
@@ -252,18 +253,15 @@ auto maxwell_eqs_snr(float dt,
                      std::size_t n_inner_iterations,
                      std::size_t n_outer_iterations,
                      fields_accessor accessor,
-                     std::execution::scheduler auto &&computer,
-                     std::execution::scheduler auto &&writer) {
+                     std::execution::scheduler auto &&computer) {
   auto write = dump_vtk(write_results, report_step, accessor);
 
   return repeat_n(
            n_outer_iterations,
              repeat_n(
                n_inner_iterations,
-                 ex::schedule(computer)
-               | ex::bulk(accessor.cells, update_h(accessor))
-               | ex::bulk(accessor.cells, update_e(time, dt, accessor)))
-           | ex::transfer(writer)
+                 ex::just() | exec::on(computer, ex::bulk(accessor.cells, update_h(accessor))
+                                               | ex::bulk(accessor.cells, update_e(time, dt, accessor))))
            | ex::then(std::move(write)));
 }
 
@@ -274,14 +272,12 @@ void run_snr(float dt,
              grid_t &grid,
              std::string_view scheduler_name,
              std::execution::scheduler auto &&computer) {
-  exec::inline_scheduler writer{};
-
   time_storage_t time{is_gpu_scheduler(computer)};
   fields_accessor accessor = grid.accessor();
 
-  std::this_thread::sync_wait(
-    ex::schedule(computer) |
-    ex::bulk(grid.cells, grid_initializer(dt, accessor)));
+  auto init = ex::just() 
+            | exec::on(computer, ex::bulk(grid.cells, grid_initializer(dt, accessor)));
+  std::this_thread::sync_wait(init);
 
   std::size_t report_step = 0;
   auto snd = maxwell_eqs_snr(dt,
@@ -291,8 +287,7 @@ void run_snr(float dt,
                              n_inner_iterations,
                              n_outer_iterations,
                              accessor,
-                             computer,
-                             writer);
+                             computer);
 
   report_performance(grid.cells,
                      n_inner_iterations * n_outer_iterations,
