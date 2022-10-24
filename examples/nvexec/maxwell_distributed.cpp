@@ -18,7 +18,12 @@
 #include "maxwell/snr.cuh"
 #include "nvexec/stream_context.cuh"
 
+#if __has_include(<mpi.h>) 
 #include <mpi.h>
+#define MPI_ENABLED 1
+#else
+#define MPI_ENABLED 0
+#endif
 
 static std::pair<std::size_t, std::size_t>
 even_share(std::size_t n, std::uint32_t rank, std::uint32_t size) noexcept {
@@ -375,9 +380,11 @@ int main(int argc, char *argv[]) {
   int rank{};
   int size{1};
 
+#if MPI_ENABLED
   MPI_Init(&argc, &argv);
   MPI_Comm_rank(MPI_COMM_WORLD, &rank);
   MPI_Comm_size(MPI_COMM_WORLD, &size);
+#endif
 
   std::cout << rank << " / " << size << std::endl;
 
@@ -404,7 +411,8 @@ int main(int argc, char *argv[]) {
   auto dt = calculate_dt(accessor.dx, accessor.dy);
 
   nvexec::stream_context stream_context{};
-  nvexec::stream_scheduler gpu = stream_context.get_scheduler();
+  nvexec::stream_scheduler gpu = stream_context.get_scheduler(nvexec::stream_priority::low);
+  nvexec::stream_scheduler gpu_with_priority = stream_context.get_scheduler(nvexec::stream_priority::high);
 
   time_storage_t time{true /* on gpu */};
 
@@ -422,17 +430,21 @@ int main(int argc, char *argv[]) {
   const int next_rank = rank == (size - 1) ? 0 : rank + 1;
 
   auto exchange_hx = [&] {
+#if MPI_ENABLED
      MPI_Request requests[2];
      MPI_Irecv(accessor.get(field_id::hx) - N, N, MPI_FLOAT, prev_rank, 0, MPI_COMM_WORLD, requests + 0);
      MPI_Isend(accessor.get(field_id::hx) + accessor.own_cells() - N, N, MPI_FLOAT, next_rank, 0, MPI_COMM_WORLD, requests + 1);
      MPI_Waitall(2, requests, MPI_STATUSES_IGNORE);
+#endif
   };
 
   auto exchange_ez = [&] {
+#if MPI_ENABLED
      MPI_Request requests[2];
      MPI_Irecv(accessor.get(field_id::ez) + accessor.own_cells(), N, MPI_FLOAT, next_rank, 0, MPI_COMM_WORLD, requests + 0);
      MPI_Isend(accessor.get(field_id::ez), N, MPI_FLOAT, prev_rank, 0, MPI_COMM_WORLD, requests + 1);
      MPI_Waitall(2, requests, MPI_STATUSES_IGNORE);
+#endif
   };
 
   exchange_hx();
@@ -457,13 +469,13 @@ int main(int argc, char *argv[]) {
 
   for (std::size_t compute_step = 0; compute_step < n_iterations; compute_step++) {
     auto compute_h = ex::when_all(
-      ex::just() | exec::on(gpu, ex::bulk(bulk_cells,   bulk_h_update)),
-      ex::just() | exec::on(gpu, ex::bulk(border_cells, border_h_update)) | exec::on(cpu, ex::then(exchange_hx))
+      ex::just() | exec::on(gpu, ex::bulk(bulk_cells, bulk_h_update)),
+      ex::just() | exec::on(gpu_with_priority, ex::bulk(border_cells, border_h_update)) | exec::on(cpu, ex::then(exchange_hx))
     );
 
     auto compute_e = ex::when_all(
-      ex::just() | exec::on(gpu, ex::bulk(bulk_cells,   bulk_e_update)),
-      ex::just() | exec::on(gpu, ex::bulk(border_cells, border_e_update)) | exec::on(cpu, ex::then(exchange_ez))
+      ex::just() | exec::on(gpu, ex::bulk(bulk_cells, bulk_e_update)),
+      ex::just() | exec::on(gpu_with_priority, ex::bulk(border_cells, border_e_update)) | exec::on(cpu, ex::then(exchange_ez))
     );
 
     std::this_thread::sync_wait(std::move(compute_h));
@@ -488,6 +500,8 @@ int main(int argc, char *argv[]) {
   write();
 #endif
 
+#if MPI_ENABLED
   MPI_Finalize();
+#endif
 }
 

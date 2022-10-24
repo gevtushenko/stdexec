@@ -102,7 +102,7 @@ namespace transfer {
       operation_state_t(queue::task_hub_t* hub, Sender&& sender, Receiver &&receiver)
         : hub_(hub)
         , storage_(queue::make_host<variant_t>(this->status_))
-        , task_(queue::make_host<task_t>(this->status_, receiver_t{*this}, storage_.get()).release())
+        , task_(queue::make_host<task_t>(this->status_, receiver_t{*this}, storage_.get(), get_stream()).release())
         , started_(ATOMIC_FLAG_INIT)
         , receiver_((Receiver&&)receiver)
         , inner_op_{

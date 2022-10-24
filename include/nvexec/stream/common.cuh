@@ -30,6 +30,12 @@
 
 namespace nvexec {
 
+  enum class stream_priority {
+    high, 
+    normal, 
+    low
+  };
+
   enum class device_type {
     host,
     device
@@ -55,6 +61,48 @@ namespace nvexec {
   struct stream_context;
 
   namespace STDEXEC_STREAM_DETAIL_NS {
+    inline std::pair<int, cudaError_t> get_stream_priority(stream_priority priority) {
+      int least{};
+      int greatest{};
+
+      if (cudaError_t status = STDEXEC_DBG_ERR(cudaDeviceGetStreamPriorityRange(&least, &greatest));
+          status != cudaSuccess) {
+        return std::make_pair(0, status);
+      }
+
+      if (priority == stream_priority::low) {
+        return std::make_pair(least, cudaSuccess);
+      } else if (priority == stream_priority::high) {
+        return std::make_pair(greatest, cudaSuccess);
+      }
+
+      return std::make_pair(0, cudaSuccess);
+    }
+
+    inline std::pair<cudaStream_t, cudaError_t> 
+    create_stream_with_priority(stream_priority priority) {
+      cudaStream_t stream{};
+      cudaError_t status{cudaSuccess};
+
+      if (priority == stream_priority::normal) {
+        status = 
+          STDEXEC_DBG_ERR(cudaStreamCreate(&stream));
+      } else {
+        int cuda_priority{};
+        std::tie(cuda_priority, status) = get_stream_priority(priority);
+
+        if (status != cudaSuccess) {
+          return std::make_pair(cudaStream_t{}, status);
+        }
+
+        status = 
+          STDEXEC_DBG_ERR(cudaStreamCreateWithPriority(&stream, cudaStreamDefault, cuda_priority));
+      }
+
+      return std::make_pair(stream, status);
+    }
+
+
     struct stream_scheduler;
     struct stream_sender_base {};
     struct stream_receiver_base { constexpr static std::size_t memory_allocation_size = 0; };
@@ -203,11 +251,13 @@ namespace nvexec {
       struct continuation_task_t : queue::task_base_t {
         Receiver receiver_;
         Variant* variant_;
+        cudaStream_t stream_;
         cudaError_t status_{cudaSuccess};
 
-        continuation_task_t (Receiver receiver, Variant* variant) noexcept 
+        continuation_task_t(Receiver receiver, Variant* variant, cudaStream_t stream) noexcept 
           : receiver_{receiver}
-          , variant_{variant} {
+          , variant_{variant}
+          , stream_{stream} {
           this->execute_ = [](task_base_t* t) noexcept {
             continuation_task_t &self = *reinterpret_cast<continuation_task_t*>(t);
 
@@ -219,17 +269,18 @@ namespace nvexec {
           };
 
           this->free_ = [](task_base_t* t) noexcept {
-            STDEXEC_DBG_ERR(cudaFree(t->atom_next_));
+            continuation_task_t &self = *reinterpret_cast<continuation_task_t*>(t);
+            STDEXEC_DBG_ERR(cudaFreeAsync(self.atom_next_, self.stream_));
             STDEXEC_DBG_ERR(cudaFreeHost(t));
           };
 
           this->next_ = nullptr;
 
           constexpr std::size_t ptr_size = sizeof(this->atom_next_);
-          status_ = STDEXEC_DBG_ERR(cudaMalloc(&this->atom_next_, ptr_size));
+          status_ = STDEXEC_DBG_ERR(cudaMallocAsync(&this->atom_next_, ptr_size, stream_));
 
           if (status_ == cudaSuccess) {
-            status_ = STDEXEC_DBG_ERR(cudaMemset(this->atom_next_, 0, ptr_size));
+            status_ = STDEXEC_DBG_ERR(cudaMemsetAsync(this->atom_next_, 0, ptr_size, stream_));
           }
         }
       };
@@ -242,10 +293,13 @@ namespace nvexec {
         cudaStream_t stream_{0};
         void *temp_storage_{nullptr};
         outer_receiver_t receiver_;
+        stream_priority priority_;
         cudaError_t status_{cudaSuccess};
 
-        operation_state_base_t(outer_receiver_t receiver)
-          : receiver_(receiver) {}
+        operation_state_base_t(outer_receiver_t receiver, stream_priority priority = stream_priority::normal)
+          : receiver_(receiver) 
+          , priority_(priority) {
+        }
 
         template <class Tag, class... As>
         void propagate_completion_signal(Tag tag, As&&... as) noexcept {
@@ -262,7 +316,7 @@ namespace nvexec {
         cudaStream_t allocate() {
           if (stream_ == 0) {
             owner_ = true;
-            status_ = STDEXEC_DBG_ERR(cudaStreamCreate(&stream_));
+            std::tie(stream_, status_) = create_stream_with_priority(priority_);
           }
 
           return stream_;
@@ -359,18 +413,18 @@ namespace nvexec {
 
         template <stdexec::__decays_to<outer_receiver_t> OutR, class ReceiverProvider>
           requires stream_sender<sender_t>
-        operation_state_t(sender_t&& sender, queue::task_hub_t*, OutR&& out_receiver, ReceiverProvider receiver_provider)
-          : operation_state_base_t<OuterReceiverId>((outer_receiver_t&&)out_receiver)
+        operation_state_t(sender_t&& sender, queue::task_hub_t*, OutR&& out_receiver, ReceiverProvider receiver_provider, stream_priority priority = stream_priority::normal)
+          : operation_state_base_t<OuterReceiverId>((outer_receiver_t&&)out_receiver, priority)
           , inner_op_{std::execution::connect((sender_t&&)sender, receiver_provider(*this))}
         {}
 
         template <stdexec::__decays_to<outer_receiver_t> OutR, class ReceiverProvider>
           requires (!stream_sender<sender_t>)
-        operation_state_t(sender_t&& sender, queue::task_hub_t* hub, OutR&& out_receiver, ReceiverProvider receiver_provider)
-          : operation_state_base_t<OuterReceiverId>((outer_receiver_t&&)out_receiver)
+        operation_state_t(sender_t&& sender, queue::task_hub_t* hub, OutR&& out_receiver, ReceiverProvider receiver_provider, stream_priority priority = stream_priority::normal)
+          : operation_state_base_t<OuterReceiverId>((outer_receiver_t&&)out_receiver, priority)
           , hub_(hub)
           , storage_(queue::make_host<variant_t>(this->status_))
-          , task_(queue::make_host<task_t>(this->status_, receiver_provider(*this), storage_.get()).release())
+          , task_(queue::make_host<task_t>(this->status_, receiver_provider(*this), storage_.get(), get_stream()).release())
           , started_(ATOMIC_FLAG_INIT)
           , inner_op_{
               std::execution::connect((sender_t&&)sender,
@@ -458,14 +512,15 @@ namespace nvexec {
 
     template <class Sender, class OuterReceiver, class ReceiverProvider>
       stream_op_state_t<Sender, std::invoke_result_t<ReceiverProvider, operation_state_base_t<stdexec::__x<OuterReceiver>>&>, OuterReceiver>
-      stream_op_state(queue::task_hub_t* hub, Sender&& sndr, OuterReceiver&& out_receiver, ReceiverProvider receiver_provider) {
+      stream_op_state(queue::task_hub_t* hub, Sender&& sndr, OuterReceiver&& out_receiver, ReceiverProvider receiver_provider, stream_priority priority = stream_priority::normal) {
         return stream_op_state_t<
           Sender,
-          std::invoke_result_t<ReceiverProvider, operation_state_base_t<stdexec::__x<OuterReceiver>>&>,
-          OuterReceiver>(
+          std::invoke_result_t<ReceiverProvider, operation_state_base_t<stdexec::__x<OuterReceiver>>&>, OuterReceiver>(
             (Sender&&)sndr,
             hub,
-            (OuterReceiver&&)out_receiver, receiver_provider);
+            (OuterReceiver&&)out_receiver, 
+            receiver_provider, 
+            priority);
       }
   }
 }

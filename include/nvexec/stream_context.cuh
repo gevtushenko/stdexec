@@ -83,9 +83,12 @@ namespace nvexec {
           R rec_;
           cudaStream_t stream_{0};
           cudaError_t status_{cudaSuccess};
+          stream_priority priority_{stream_priority::normal};
 
-          operation_state_t(R&& rec) : rec_((R&&)rec) {
-            status_ = STDEXEC_DBG_ERR(cudaStreamCreate(&stream_));
+          operation_state_t(R&& rec, stream_priority priority) 
+            : rec_((R&&)rec) 
+            , priority_(priority) {
+            std::tie(stream_, status_) = create_stream_with_priority(priority);
           }
 
           ~operation_state_t() {
@@ -124,14 +127,14 @@ namespace nvexec {
             std::execution::set_error_t(cudaError_t)>;
 
         template <class R>
-          friend auto tag_invoke(std::execution::connect_t, sender_t, R&& rec)
+          friend auto tag_invoke(std::execution::connect_t, const sender_t& self, R&& rec)
             noexcept(std::is_nothrow_constructible_v<std::remove_cvref_t<R>, R>)
             -> operation_state_t<stdexec::__x<std::remove_cvref_t<R>>> {
-            return operation_state_t<stdexec::__x<std::remove_cvref_t<R>>>((R&&) rec);
+            return operation_state_t<stdexec::__x<std::remove_cvref_t<R>>>((R&&) rec, self.priority_);
           }
 
         stream_scheduler make_scheduler() const {
-          return stream_scheduler{hub_};
+          return stream_scheduler{hub_, priority_};
         }
 
         template <class CPO>
@@ -140,16 +143,20 @@ namespace nvexec {
           return self.make_scheduler();
         }
 
-        sender_t(queue::task_hub_t* hub) noexcept
-          : hub_(hub) {}
+        sender_t(queue::task_hub_t* hub,
+                 stream_priority priority) noexcept
+          : hub_(hub) 
+          , priority_(priority) {
+        }
 
         queue::task_hub_t * hub_;
+        stream_priority priority_;
       };
 
       template <std::execution::sender S>
         friend schedule_from_sender_th<S>
         tag_invoke(std::execution::schedule_from_t, const stream_scheduler& sch, S&& sndr) noexcept {
-          return schedule_from_sender_th<S>(sch.hub_, (S&&) sndr);
+          return schedule_from_sender_th<S>(sch.hub_, sch.priority_, (S&&) sndr);
         }
 
       template <std::execution::sender S, std::integral Shape, class Fn>
@@ -221,7 +228,7 @@ namespace nvexec {
         }
 
       friend sender_t tag_invoke(std::execution::schedule_t, const stream_scheduler& self) noexcept {
-        return {self.hub_};
+        return {self.hub_, self.priority_};
       }
 
       friend std::true_type tag_invoke(stdexec::__has_algorithm_customizations_t, const stream_scheduler& self) noexcept {
@@ -242,12 +249,14 @@ namespace nvexec {
 
       bool operator==(const stream_scheduler&) const noexcept = default;
 
-      stream_scheduler(const queue::task_hub_t* hub)
-        : hub_(const_cast<queue::task_hub_t*>(hub)) {
+      stream_scheduler(const queue::task_hub_t* hub, stream_priority priority)
+        : hub_(const_cast<queue::task_hub_t*>(hub))
+        , priority_(priority) {
       }
 
     // private: TODO
       queue::task_hub_t* hub_{};
+      stream_priority priority_{stream_priority::normal};
     };
 
     template <stream_completing_sender Sender>
@@ -288,8 +297,8 @@ namespace nvexec {
   struct stream_context {
     STDEXEC_STREAM_DETAIL_NS::queue::task_hub_t hub{};
 
-    stream_scheduler get_scheduler() {
-      return {&hub};
+    stream_scheduler get_scheduler(stream_priority priority = stream_priority::normal) {
+      return {&hub, priority};
     }
   };
 }
