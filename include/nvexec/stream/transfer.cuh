@@ -24,10 +24,10 @@ namespace nvexec::STDEXEC_STREAM_DETAIL_NS {
  
 namespace transfer {
   template <class SenderId, class ReceiverId>
-    struct operation_state_t : stream_op_state_base {
+    struct operation_state_t : operation_state_base_t<ReceiverId> {
       using Sender = stdexec::__t<SenderId>;
       using Receiver = stdexec::__t<ReceiverId>;
-      using Env = std::execution::env_of_t<Receiver>;
+      using Env = typename operation_state_base_t<ReceiverId>::env_t;
       using variant_t = variant_storage_t<Sender, Env>;
 
       struct receiver_t {
@@ -41,16 +41,14 @@ namespace transfer {
           Tag{}(std::move(self.op_state_.receiver_), (As&&)as...);
         }
 
-        friend std::execution::env_of_t<stdexec::__t<ReceiverId>>
+        friend Env
         tag_invoke(std::execution::get_env_t, const receiver_t& self) {
-          return std::execution::get_env(self.operation_state_.receiver_);
+          return self.operation_state_.make_env();
         }
       };
 
       using task_t = continuation_task_t<receiver_t, variant_t>;
 
-      bool owner_{false};
-      cudaStream_t stream_{0};
       cudaError_t status_{cudaSuccess};
       context_state_t context_state_;
 
@@ -59,36 +57,12 @@ namespace transfer {
 
       ::cuda::std::atomic_flag started_;
 
-      Receiver receiver_;
-
       using enqueue_receiver = stream_enqueue_receiver<stdexec::__x<Env>, stdexec::__x<variant_t>>;
       using inner_op_state_t = std::execution::connect_result_t<Sender, enqueue_receiver>;
       inner_op_state_t inner_op_;
 
-      cudaStream_t allocate() {
-        if (stream_ == 0) {
-          owner_ = true;
-          status_ = STDEXEC_DBG_ERR(cudaStreamCreate(&stream_));
-        }
-
-        return stream_;
-      }
-
-      cudaStream_t get_stream() {
-        cudaStream_t stream{};
-
-        if constexpr (std::is_base_of_v<stream_op_state_base, inner_op_state_t>) {
-          stream = inner_op_.get_stream();
-        } else {
-          stream = this->allocate();
-        }
-
-        return stream;
-      }
-
       friend void tag_invoke(std::execution::start_t, operation_state_t& op) noexcept {
         op.started_.test_and_set(::cuda::std::memory_order::relaxed);
-        op.stream_ = op.get_stream();
 
         if (op.status_ != cudaSuccess) {
           // Couldn't allocate memory for operation state, complete with error
@@ -100,29 +74,21 @@ namespace transfer {
       }
 
       operation_state_t(Sender&& sender, Receiver &&receiver, context_state_t context_state)
-        : context_state_(context_state)
+        : operation_state_base_t<ReceiverId>((Receiver&&)receiver, context_state)
+        , context_state_(context_state)
         , storage_(queue::make_host<variant_t>(this->status_))
-        , task_(queue::make_host<task_t>(this->status_, receiver_t{*this}, storage_.get(), get_stream()).release())
+        , task_(queue::make_host<task_t>(this->status_, receiver_t{*this}, storage_.get(), this->get_stream()).release())
         , started_(ATOMIC_FLAG_INIT)
-        , receiver_((Receiver&&)receiver)
         , inner_op_{
             std::execution::connect(
                 (Sender&&)sender,
                 enqueue_receiver{
-                  std::execution::get_env(receiver_), 
+                  this->make_env(), 
                   storage_.get(), 
                   task_, 
                   context_state_.hub_->producer()})} {
         if (this->status_ == cudaSuccess) {
           this->status_ = task_->status_;
-        }
-      }
-
-      ~operation_state_t() {
-        if (owner_) {
-          STDEXEC_DBG_ERR(cudaStreamDestroy(stream_));
-          stream_ = 0;
-          owner_ = false;
         }
       }
 

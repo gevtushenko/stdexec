@@ -29,7 +29,7 @@ namespace schedule_from {
     struct receiver_t : stream_receiver_base {
       using Sender = stdexec::__t<SenderId>;
       using Receiver = stdexec::__t<ReceiverId>;
-      using Env = std::execution::env_of_t<Receiver>;
+      using Env = typename operation_state_base_t<ReceiverId>::env_t;
       using storage_t = variant_storage_t<Sender, Env>;
 
       constexpr static std::size_t memory_allocation_size = sizeof(storage_t);
@@ -39,9 +39,9 @@ namespace schedule_from {
       template <stdexec::__one_of<std::execution::set_value_t,
                                   std::execution::set_error_t,
                                   std::execution::set_stopped_t> Tag,
-                class... As >
+                class... As>
       friend void tag_invoke(Tag tag, receiver_t&& self, As&&... as) noexcept {
-        auto stream = self.operation_state_.stream_;
+        auto stream = self.operation_state_.get_stream();
         storage_t *storage = reinterpret_cast<storage_t*>(self.operation_state_.temp_storage_);
         storage->template emplace<decayed_tuple<Tag, As...>>(Tag{}, (As&&)as...);
 
@@ -52,9 +52,9 @@ namespace schedule_from {
         }, *storage);
       }
 
-      friend std::execution::env_of_t<stdexec::__t<ReceiverId>>
+      friend Env 
       tag_invoke(std::execution::get_env_t, const receiver_t& self) {
-        return std::execution::get_env(self.operation_state_.receiver_);
+        return self.operation_state_.make_env();
       }
     };
 

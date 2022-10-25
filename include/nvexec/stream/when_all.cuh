@@ -144,7 +144,7 @@ template <bool WithCompletionScheduler, class Scheduler, class... SenderIds>
               // We only need to bother recording the completion values
               // if we're not already in the "error" or "stopped" state.
               if (op_state_->state_ == when_all::started) {
-                cudaStream_t stream = std::get<Index>(op_state_->child_states_).stream_;
+                cudaStream_t stream = std::get<Index>(op_state_->child_states_).get_stream();
                 if constexpr (sizeof...(Values)) {
                   when_all::copy_kernel<<<1, 1, 0, stream>>>(&get<Index>(*op_state_->values_), (Values&&)vals...);
                 }
@@ -229,10 +229,8 @@ template <bool WithCompletionScheduler, class Scheduler, class... SenderIds>
         template <class OpT>
         static void sync(OpT& op) noexcept {
           if constexpr (std::is_base_of_v<stream_op_state_base, OpT>) {
-            if (op.stream_) {
-              if (op.status_ == cudaSuccess) {
-                op.status_ = STDEXEC_DBG_ERR(cudaStreamSynchronize(op.stream_));
-              }
+            if (op.status_ == cudaSuccess) {
+              op.status_ = STDEXEC_DBG_ERR(cudaStreamSynchronize(op.get_stream()));
             }
           }
         }

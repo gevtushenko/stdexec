@@ -63,15 +63,12 @@ namespace nvexec {
   namespace STDEXEC_STREAM_DETAIL_NS {
     struct context_state_t {
       queue::task_hub_t* hub_{nullptr};
-      std::optional<cudaStream_t> stream_;
       stream_priority priority_;
 
       context_state_t(
         queue::task_hub_t* hub,
-        stream_priority priority = stream_priority::normal,
-        std::optional<cudaStream_t> stream = {})
+        stream_priority priority = stream_priority::normal)
         : hub_(hub)
-        , stream_(stream) 
         , priority_(priority) {
       }
     };
@@ -120,17 +117,13 @@ namespace nvexec {
     struct stream_scheduler;
     struct stream_sender_base {};
     struct stream_receiver_base { constexpr static std::size_t memory_allocation_size = 0; };
-    struct stream_env_base { context_state_t context_state_; };
+    struct stream_env_base { cudaStream_t stream_; };
 
     struct get_stream_t {
-      template <stdexec::__none_of<stdexec::no_env> Env>
-        std::optional<cudaStream_t> operator()(const Env&) const noexcept {
-          return std::nullopt;
-        }
-      template <stdexec::__none_of<stdexec::no_env> Env>
-          requires (std::is_base_of_v<stream_env_base, Env>)
-        std::optional<cudaStream_t> operator()(const Env& env) const noexcept {
-          return env.context_state_.stream_;
+      template <class Env>
+          requires std::tag_invocable<get_stream_t, Env>
+        cudaStream_t operator()(const Env& env) const noexcept {
+          return std::tag_invoke(get_stream_t{}, env);
         }
     };
 
@@ -180,12 +173,18 @@ namespace nvexec {
         using BaseEnv = stdexec::__t<BaseEnvId>;
         BaseEnv base_env_;
 
-        template <stdexec::__none_of<get_stream_t> Tag, 
+        template <class Tag, 
                   stdexec::same_as<stream_env> Self,
                   class... As>
             requires stdexec::__callable<Tag, const BaseEnv&, As...>
-          friend auto tag(Tag tag, const Self& self, As&&... as) noexcept {
+          friend auto tag_invoke(Tag tag, const Self& self, As&&... as) noexcept {
             return ((Tag&&)tag)(self.base_env_, (As&&)as...);
+          }
+
+        template <stdexec::same_as<stream_env> Self>
+            requires (!stdexec::__callable<get_stream_t, const BaseEnv&>)
+          friend cudaStream_t tag_invoke(get_stream_t, const Self& self) noexcept {
+            return self.stream_;
           }
       };
 
@@ -198,8 +197,12 @@ namespace nvexec {
         >;
 
     template <class BaseEnv>
-      make_stream_env_t<BaseEnv> make_stream_env(BaseEnv&& base, std::optional<cudaStream_t> stream) noexcept {
-        return make_stream_env_t<BaseEnv>{{stream}, (BaseEnv&&)base};
+      make_stream_env_t<BaseEnv> make_stream_env(BaseEnv&& base, cudaStream_t stream) noexcept {
+        if constexpr (std::is_base_of_v<stream_env_base, BaseEnv>) {
+          return make_stream_env_t<BaseEnv>{{stream}, ((BaseEnv&&)base).base_env_};
+        } else {
+          return make_stream_env_t<BaseEnv>{{stream}, (BaseEnv&&)base};
+        }
       }
 
     template <class S>
@@ -302,17 +305,40 @@ namespace nvexec {
     template <class OuterReceiverId>
       struct operation_state_base_t : stream_op_state_base {
         using outer_receiver_t = stdexec::__t<OuterReceiverId>;
+        using outer_env_t = std::execution::env_of_t<outer_receiver_t>;
+        using env_t = make_stream_env_t<outer_env_t>;
 
-        bool owner_{false};
-        cudaStream_t stream_{0};
+        static constexpr bool borrows_stream = std::is_base_of_v<stream_env_base, outer_env_t>;
+
         void *temp_storage_{nullptr};
         outer_receiver_t receiver_;
-        stream_priority priority_;
         cudaError_t status_{cudaSuccess};
+        std::optional<cudaStream_t> own_stream_{};
 
-        operation_state_base_t(outer_receiver_t receiver, stream_priority priority = stream_priority::normal)
-          : receiver_(receiver) 
-          , priority_(priority) {
+        operation_state_base_t(
+            outer_receiver_t receiver, 
+            context_state_t context_state)
+          : receiver_(receiver) {
+          if constexpr(!borrows_stream) {
+            std::tie(own_stream_, status_) = create_stream_with_priority(context_state.priority_);
+          }
+        }
+
+        cudaStream_t get_stream() const {
+          cudaStream_t stream{};
+
+          if constexpr(borrows_stream) {
+            outer_env_t env = std::execution::get_env(receiver_);
+            stream = ::nvexec::STDEXEC_STREAM_DETAIL_NS::get_stream(env);
+          } else {
+            stream = *own_stream_;
+          }
+
+          return stream;
+        }
+
+        env_t make_env() const {
+          return make_stream_env(std::execution::get_env(receiver_), get_stream());
         }
 
         template <class Tag, class... As>
@@ -322,25 +348,15 @@ namespace nvexec {
           } else {
             continuation_kernel
               <std::decay_t<outer_receiver_t>, Tag, As...>
-              <<<1, 1, 0, stream_>>>(
-                receiver_, tag, (As&&)as...);
+                <<<1, 1, 0, get_stream()>>>(
+                  receiver_, tag, (As&&)as...);
           }
-        }
-
-        cudaStream_t allocate() {
-          if (stream_ == 0) {
-            owner_ = true;
-            std::tie(stream_, status_) = create_stream_with_priority(priority_);
-          }
-
-          return stream_;
         }
 
         ~operation_state_base_t() {
-          if (owner_) {
-            STDEXEC_DBG_ERR(cudaStreamDestroy(stream_));
-            stream_ = 0;
-            owner_ = false;
+          if (own_stream_) {
+            STDEXEC_DBG_ERR(cudaStreamDestroy(*own_stream_));
+            own_stream_.reset();
           }
 
           if (temp_storage_) {
@@ -361,9 +377,9 @@ namespace nvexec {
           self.operation_state_.template propagate_completion_signal<Tag, As...>(tag, (As&&)as...);
         }
 
-        friend std::execution::env_of_t<stdexec::__t<ReceiverId>>
+        friend typename operation_state_base_t<ReceiverId>::env_t
         tag_invoke(std::execution::get_env_t, const propagate_receiver_t& self) {
-          return std::execution::get_env(self.operation_state_.receiver_);
+          return self.operation_state_.make_env();
         }
       };
 
@@ -372,7 +388,7 @@ namespace nvexec {
         using sender_t = stdexec::__t<SenderId>;
         using inner_receiver_t = stdexec::__t<InnerReceiverId>;
         using outer_receiver_t = stdexec::__t<OuterReceiverId>;
-        using env_t = std::execution::env_of_t<outer_receiver_t>;
+        using env_t = typename operation_state_base_t<OuterReceiverId>::env_t;
         using variant_t = variant_storage_t<sender_t, env_t>;
 
         using task_t = continuation_task_t<inner_receiver_t, variant_t>;
@@ -384,7 +400,6 @@ namespace nvexec {
 
         friend void tag_invoke(std::execution::start_t, operation_state_t& op) noexcept {
           op.started_.test_and_set(::cuda::std::memory_order::relaxed);
-          op.stream_ = op.get_stream();
 
           if (op.status_ != cudaSuccess) {
             // Couldn't allocate memory for operation state, complete with error
@@ -407,46 +422,28 @@ namespace nvexec {
           std::execution::start(op.inner_op_);
         }
 
-        cudaStream_t get_stream() {
-          cudaStream_t stream{};
-          std::optional<cudaStream_t> env_stream = 
-            ::nvexec::STDEXEC_STREAM_DETAIL_NS::get_stream(stdexec::get_env(this->receiver_));
+        template <stdexec::__decays_to<outer_receiver_t> OutR, class ReceiverProvider>
+            requires stream_sender<sender_t>
+          operation_state_t(sender_t&& sender, OutR&& out_receiver, ReceiverProvider receiver_provider, context_state_t context_state)
+            : operation_state_base_t<OuterReceiverId>((outer_receiver_t&&)out_receiver, context_state)
+            , inner_op_{std::execution::connect((sender_t&&)sender, receiver_provider(*this))} {
+          }
 
-          if (env_stream) {
-            stream = *env_stream;
-          } else {
-            if constexpr (std::is_base_of_v<stream_op_state_base, inner_op_state_t>) {
-              stream = inner_op_.get_stream();
-            } else {
-              stream = this->allocate();
+        template <stdexec::__decays_to<outer_receiver_t> OutR, class ReceiverProvider>
+            requires (!stream_sender<sender_t>)
+          operation_state_t(sender_t&& sender, OutR&& out_receiver, ReceiverProvider receiver_provider, context_state_t context_state)
+            : operation_state_base_t<OuterReceiverId>((outer_receiver_t&&)out_receiver, context_state)
+            , storage_(queue::make_host<variant_t>(this->status_))
+            , task_(queue::make_host<task_t>(this->status_, receiver_provider(*this), storage_.get(), this->get_stream()).release())
+            , started_(ATOMIC_FLAG_INIT)
+            , inner_op_{
+                std::execution::connect((sender_t&&)sender,
+                stream_enqueue_receiver<stdexec::__x<env_t>, stdexec::__x<variant_t>>{
+                  this->make_env(), storage_.get(), task_, context_state.hub_->producer()})} {
+            if (this->status_ == cudaSuccess) {
+              this->status_ = task_->status_;
             }
           }
-
-          return stream;
-        }
-
-        template <stdexec::__decays_to<outer_receiver_t> OutR, class ReceiverProvider>
-          requires stream_sender<sender_t>
-        operation_state_t(sender_t&& sender, OutR&& out_receiver, ReceiverProvider receiver_provider, context_state_t context_state)
-          : operation_state_base_t<OuterReceiverId>((outer_receiver_t&&)out_receiver, context_state.priority_)
-          , inner_op_{std::execution::connect((sender_t&&)sender, receiver_provider(*this))}
-        {}
-
-        template <stdexec::__decays_to<outer_receiver_t> OutR, class ReceiverProvider>
-          requires (!stream_sender<sender_t>)
-        operation_state_t(sender_t&& sender, OutR&& out_receiver, ReceiverProvider receiver_provider, context_state_t context_state)
-          : operation_state_base_t<OuterReceiverId>((outer_receiver_t&&)out_receiver, context_state.priority_)
-          , storage_(queue::make_host<variant_t>(this->status_))
-          , task_(queue::make_host<task_t>(this->status_, receiver_provider(*this), storage_.get(), get_stream()).release())
-          , started_(ATOMIC_FLAG_INIT)
-          , inner_op_{
-              std::execution::connect((sender_t&&)sender,
-              stream_enqueue_receiver<stdexec::__x<env_t>, stdexec::__x<variant_t>>{
-                std::execution::get_env(out_receiver), storage_.get(), task_, context_state.hub_->producer()})} {
-          if (this->status_ == cudaSuccess) {
-            this->status_ = task_->status_;
-          }
-        }
 
         ~operation_state_t() {
           if (!started_.test(::cuda::memory_order_relaxed)) {

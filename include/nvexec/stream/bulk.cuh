@@ -36,6 +36,7 @@ namespace bulk {
   template <class ReceiverId, std::integral Shape, class Fun>
     class receiver_t : public stream_receiver_base {
       using Receiver = stdexec::__t<ReceiverId>;
+      using Env = typename operation_state_base_t<ReceiverId>::env_t;
 
       Shape shape_;
       Fun f_;
@@ -49,7 +50,7 @@ namespace bulk {
           operation_state_base_t<ReceiverId> &op_state = self.op_state_;
 
           if (self.shape_) {
-            cudaStream_t stream = op_state.stream_;
+            cudaStream_t stream = op_state.get_stream();
             constexpr int block_threads = 256;
             const int grid_blocks = (static_cast<int>(self.shape_) + block_threads - 1) / block_threads;
             kernel
@@ -72,8 +73,8 @@ namespace bulk {
           self.op_state_.propagate_completion_signal(tag, (As&&)as...);
         }
 
-      friend std::execution::env_of_t<Receiver> tag_invoke(std::execution::get_env_t, const receiver_t& self) {
-        return std::execution::get_env(self.op_state_.receiver_);
+      friend Env tag_invoke(std::execution::get_env_t, const receiver_t& self) noexcept {
+        return self.op_state_.make_env();
       }
 
       explicit receiver_t(Shape shape, Fun fun, operation_state_base_t<ReceiverId>& op_state)
