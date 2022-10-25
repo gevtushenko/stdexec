@@ -61,6 +61,21 @@ namespace nvexec {
   struct stream_context;
 
   namespace STDEXEC_STREAM_DETAIL_NS {
+    struct context_state_t {
+      queue::task_hub_t* hub_{nullptr};
+      std::optional<cudaStream_t> stream_;
+      stream_priority priority_;
+
+      context_state_t(
+        queue::task_hub_t* hub,
+        stream_priority priority = stream_priority::normal,
+        std::optional<cudaStream_t> stream = {})
+        : hub_(hub)
+        , stream_(stream) 
+        , priority_(priority) {
+      }
+    };
+
     inline std::pair<int, cudaError_t> get_stream_priority(stream_priority priority) {
       int least{};
       int greatest{};
@@ -102,11 +117,10 @@ namespace nvexec {
       return std::make_pair(stream, status);
     }
 
-
     struct stream_scheduler;
     struct stream_sender_base {};
     struct stream_receiver_base { constexpr static std::size_t memory_allocation_size = 0; };
-    struct stream_env_base { std::optional<cudaStream_t> stream_; };
+    struct stream_env_base { context_state_t context_state_; };
 
     struct get_stream_t {
       template <stdexec::__none_of<stdexec::no_env> Env>
@@ -116,7 +130,7 @@ namespace nvexec {
       template <stdexec::__none_of<stdexec::no_env> Env>
           requires (std::is_base_of_v<stream_env_base, Env>)
         std::optional<cudaStream_t> operator()(const Env& env) const noexcept {
-          return env.stream_;
+          return env.context_state_.stream_;
         }
     };
 
@@ -413,23 +427,22 @@ namespace nvexec {
 
         template <stdexec::__decays_to<outer_receiver_t> OutR, class ReceiverProvider>
           requires stream_sender<sender_t>
-        operation_state_t(sender_t&& sender, queue::task_hub_t*, OutR&& out_receiver, ReceiverProvider receiver_provider, stream_priority priority = stream_priority::normal)
-          : operation_state_base_t<OuterReceiverId>((outer_receiver_t&&)out_receiver, priority)
+        operation_state_t(sender_t&& sender, OutR&& out_receiver, ReceiverProvider receiver_provider, context_state_t context_state)
+          : operation_state_base_t<OuterReceiverId>((outer_receiver_t&&)out_receiver, context_state.priority_)
           , inner_op_{std::execution::connect((sender_t&&)sender, receiver_provider(*this))}
         {}
 
         template <stdexec::__decays_to<outer_receiver_t> OutR, class ReceiverProvider>
           requires (!stream_sender<sender_t>)
-        operation_state_t(sender_t&& sender, queue::task_hub_t* hub, OutR&& out_receiver, ReceiverProvider receiver_provider, stream_priority priority = stream_priority::normal)
-          : operation_state_base_t<OuterReceiverId>((outer_receiver_t&&)out_receiver, priority)
-          , hub_(hub)
+        operation_state_t(sender_t&& sender, OutR&& out_receiver, ReceiverProvider receiver_provider, context_state_t context_state)
+          : operation_state_base_t<OuterReceiverId>((outer_receiver_t&&)out_receiver, context_state.priority_)
           , storage_(queue::make_host<variant_t>(this->status_))
           , task_(queue::make_host<task_t>(this->status_, receiver_provider(*this), storage_.get(), get_stream()).release())
           , started_(ATOMIC_FLAG_INIT)
           , inner_op_{
               std::execution::connect((sender_t&&)sender,
               stream_enqueue_receiver<stdexec::__x<env_t>, stdexec::__x<variant_t>>{
-                std::execution::get_env(out_receiver), storage_.get(), task_, hub_->producer()})} {
+                std::execution::get_env(out_receiver), storage_.get(), task_, context_state.hub_->producer()})} {
           if (this->status_ == cudaSuccess) {
             this->status_ = task_->status_;
           }
@@ -445,7 +458,6 @@ namespace nvexec {
 
         STDEXEC_IMMOVABLE(operation_state_t);
 
-        queue::task_hub_t* hub_{};
         queue::host_ptr<variant_t> storage_;
         task_t *task_{};
 
@@ -463,32 +475,31 @@ namespace nvexec {
 
     template <class Sender, class OuterReceiver>
       exit_operation_state_t<Sender, OuterReceiver>
-      exit_op_state(queue::task_hub_t* hub, Sender&& sndr, OuterReceiver&& rcvr) noexcept {
+      exit_op_state(Sender&& sndr, OuterReceiver&& rcvr, context_state_t context_state) noexcept {
         using ReceiverId = stdexec::__x<OuterReceiver>;
         return exit_operation_state_t<Sender, OuterReceiver>(
           (Sender&&)sndr, 
-          hub, 
           (OuterReceiver&&)rcvr, 
           [](operation_state_base_t<ReceiverId>& op) -> propagate_receiver_t<ReceiverId> {
             return propagate_receiver_t<ReceiverId>{{}, op};
-          }
-        );
+          },
+          context_state);
       }
 
     template <class S>
       concept stream_completing_sender =
         std::execution::sender<S> &&
         requires (const S& sndr) {
-          { std::execution::get_completion_scheduler<std::execution::set_value_t>(sndr).hub_ } -> 
-              std::same_as<queue::task_hub_t*>;
+          { std::execution::get_completion_scheduler<std::execution::set_value_t>(sndr).context_state_ } -> 
+              std::same_as<context_state_t>;
         };
 
     template <class R>
       concept receiver_with_stream_env =
         std::execution::receiver<R> &&
         requires (const R& rcvr) {
-          { std::execution::get_scheduler(std::execution::get_env(rcvr)).hub_ } -> 
-              std::same_as<queue::task_hub_t*>;
+          { std::execution::get_scheduler(std::execution::get_env(rcvr)).context_state_ } -> 
+              std::same_as<context_state_t>;
         };
 
     template <class Sender, class InnerReceiver, class OuterReceiver>
@@ -499,28 +510,29 @@ namespace nvexec {
     template <stream_completing_sender Sender, class OuterReceiver, class ReceiverProvider>
       stream_op_state_t<Sender, std::invoke_result_t<ReceiverProvider, operation_state_base_t<stdexec::__x<OuterReceiver>>&>, OuterReceiver>
       stream_op_state(Sender&& sndr, OuterReceiver&& out_receiver, ReceiverProvider receiver_provider) {
-        queue::task_hub_t* hub = std::execution::get_completion_scheduler<std::execution::set_value_t>(sndr).hub_;
+        auto sch = std::execution::get_completion_scheduler<std::execution::set_value_t>(sndr);
+        context_state_t context_state = sch.context_state_;
 
         return stream_op_state_t<
           Sender,
           std::invoke_result_t<ReceiverProvider, operation_state_base_t<stdexec::__x<OuterReceiver>>&>,
           OuterReceiver>(
             (Sender&&)sndr,
-            hub,
-            (OuterReceiver&&)out_receiver, receiver_provider);
+            (OuterReceiver&&)out_receiver, 
+            receiver_provider,
+            context_state);
       }
 
     template <class Sender, class OuterReceiver, class ReceiverProvider>
       stream_op_state_t<Sender, std::invoke_result_t<ReceiverProvider, operation_state_base_t<stdexec::__x<OuterReceiver>>&>, OuterReceiver>
-      stream_op_state(queue::task_hub_t* hub, Sender&& sndr, OuterReceiver&& out_receiver, ReceiverProvider receiver_provider, stream_priority priority = stream_priority::normal) {
+      stream_op_state(Sender&& sndr, OuterReceiver&& out_receiver, ReceiverProvider receiver_provider, context_state_t context_state) {
         return stream_op_state_t<
           Sender,
           std::invoke_result_t<ReceiverProvider, operation_state_base_t<stdexec::__x<OuterReceiver>>&>, OuterReceiver>(
             (Sender&&)sndr,
-            hub,
             (OuterReceiver&&)out_receiver, 
             receiver_provider, 
-            priority);
+            context_state);
       }
   }
 }

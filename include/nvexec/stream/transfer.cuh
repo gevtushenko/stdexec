@@ -52,8 +52,8 @@ namespace transfer {
       bool owner_{false};
       cudaStream_t stream_{0};
       cudaError_t status_{cudaSuccess};
+      context_state_t context_state_;
 
-      queue::task_hub_t* hub_;
       queue::host_ptr<variant_t> storage_;
       task_t *task_;
 
@@ -99,8 +99,8 @@ namespace transfer {
         std::execution::start(op.inner_op_);
       }
 
-      operation_state_t(queue::task_hub_t* hub, Sender&& sender, Receiver &&receiver)
-        : hub_(hub)
+      operation_state_t(Sender&& sender, Receiver &&receiver, context_state_t context_state)
+        : context_state_(context_state)
         , storage_(queue::make_host<variant_t>(this->status_))
         , task_(queue::make_host<task_t>(this->status_, receiver_t{*this}, storage_.get(), get_stream()).release())
         , started_(ATOMIC_FLAG_INIT)
@@ -112,7 +112,7 @@ namespace transfer {
                   std::execution::get_env(receiver_), 
                   storage_.get(), 
                   task_, 
-                  hub_->producer()})} {
+                  context_state_.hub_->producer()})} {
         if (this->status_ == cudaSuccess) {
           this->status_ = task_->status_;
         }
@@ -140,7 +140,7 @@ template <class SenderId>
           stdexec::__x<stdexec::__member_t<Self, Sender>>, 
           stdexec::__x<Receiver>>;
 
-    queue::task_hub_t* hub_;
+    context_state_t context_state_;
     Sender sndr_;
 
     template <stdexec::__decays_to<transfer_sender_t> Self, std::execution::receiver Receiver>
@@ -148,9 +148,9 @@ template <class SenderId>
     friend auto tag_invoke(std::execution::connect_t, Self&& self, Receiver&& rcvr)
       -> op_state_th<Self, Receiver> {
       return op_state_th<Self, Receiver>{
-        self.hub_, 
         (Sender&&)self.sndr_, 
-        (Receiver&&)rcvr};
+        (Receiver&&)rcvr,
+        self.context_state_};
     }
 
     template <stdexec::__decays_to<transfer_sender_t> Self, class Env>
@@ -176,8 +176,8 @@ template <class SenderId>
       return ((Tag&&) tag)(self.sndr_, (As&&) as...);
     }
 
-    transfer_sender_t(queue::task_hub_t* hub, Sender sndr)
-      : hub_(hub)
+    transfer_sender_t(context_state_t context_state, Sender sndr)
+      : context_state_(context_state)
       , sndr_{(Sender&&)sndr} {
     }
   };

@@ -118,7 +118,7 @@ namespace nvexec::STDEXEC_STREAM_DETAIL_NS {
 
         template <stdexec::__decays_to<Sender> S>
             requires (stream_sender<S>)
-          explicit sh_state_t(S& sndr, queue::task_hub_t*)
+          explicit sh_state_t(S& sndr, context_state_t)
             : data_(malloc_managed<variant_t>(status_))
             , op_state1_{nullptr}
             , op_state2_(std::execution::connect((Sender&&) sndr, inner_receiver_t{*this})) {
@@ -127,9 +127,9 @@ namespace nvexec::STDEXEC_STREAM_DETAIL_NS {
 
         template <stdexec::__decays_to<Sender> S>
             requires (!stream_sender<S>)
-          explicit sh_state_t(S& sndr, queue::task_hub_t* hub)
+          explicit sh_state_t(S& sndr, context_state_t context_state)
             : data_(malloc_managed<variant_t>(status_))
-            , task_(queue::make_host<task_t>(status_, inner_receiver_t{*this}, data_).release())
+            , task_(queue::make_host<task_t>(status_, inner_receiver_t{*this}, data_, cudaStream_t{} /* TODO BUGBUG Stream */).release())
             , op_state2_(
                 std::execution::connect(
                   (Sender&&)sndr,
@@ -137,7 +137,7 @@ namespace nvexec::STDEXEC_STREAM_DETAIL_NS {
                     stdexec::__make_env(stdexec::__with(std::execution::get_stop_token, std::move(stop_source_.get_token()))),
                     data_, 
                     task_, 
-                    hub->producer()})) {
+                    context_state.hub_->producer()})) {
               std::execution::start(op_state2_);
           }
 
@@ -313,10 +313,11 @@ namespace nvexec::STDEXEC_STREAM_DETAIL_NS {
             set_error_t>;
 
      public:
-      explicit ensure_started_sender_t(Sender sndr, queue::task_hub_t* hub)
+      explicit ensure_started_sender_t(context_state_t context_state, Sender sndr)
         : sndr_((Sender&&) sndr)
-        , shared_state_{stdexec::__make_intrusive<sh_state_>(sndr_, hub)}
+        , shared_state_{stdexec::__make_intrusive<sh_state_>(sndr_, context_state)}
       {}
+
       ~ensure_started_sender_t() {
         if (nullptr != shared_state_) {
           // We're detaching a potentially running operation. Request cancellation.

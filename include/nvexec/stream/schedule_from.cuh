@@ -89,8 +89,7 @@ template <class Scheduler, class SenderId>
     using Sender = stdexec::__t<SenderId>;
     using source_sender_th = schedule_from::source_sender_t<Sender>;
 
-    queue::task_hub_t* hub_;
-    stream_priority priority_;
+    context_state_t context_state_;
     source_sender_th sndr_;
 
     template <class Self, class Receiver>
@@ -103,18 +102,17 @@ template <class Scheduler, class SenderId>
     friend auto tag_invoke(std::execution::connect_t, Self&& self, Receiver&& rcvr)
       -> stream_op_state_t<stdexec::__member_t<Self, source_sender_th>, receiver_t<Self, Receiver>, Receiver> {
         return stream_op_state<stdexec::__member_t<Self, source_sender_th>>(
-            self.hub_,
             ((Self&&)self).sndr_,
             (Receiver&&)rcvr,
             [&](operation_state_base_t<stdexec::__x<Receiver>>& stream_provider) -> receiver_t<Self, Receiver> {
               return receiver_t<Self, Receiver>{{}, stream_provider};
             },
-            self.priority_);
+            self.context_state_);
     }
 
     template <stdexec::__one_of<std::execution::set_value_t, std::execution::set_stopped_t, std::execution::set_error_t> _Tag>
       friend Scheduler tag_invoke(std::execution::get_completion_scheduler_t<_Tag>, const schedule_from_sender_t& __self) noexcept {
-        return {__self.hub_, __self.priority_};
+        return {__self.context_state_};
       }
 
     template <stdexec::tag_category<std::execution::forwarding_sender_query> _Tag, class... _As>
@@ -132,9 +130,8 @@ template <class Scheduler, class SenderId>
           _Env,
           std::execution::completion_signatures<std::execution::set_error_t(cudaError_t)>>;
 
-    schedule_from_sender_t(queue::task_hub_t* hub, stream_priority priority, Sender sndr)
-      : hub_(hub)
-      , priority_(priority)
+    schedule_from_sender_t(context_state_t context_state, Sender sndr)
+      : context_state_(context_state)
       , sndr_{{}, (Sender&&)sndr} {
     }
   };

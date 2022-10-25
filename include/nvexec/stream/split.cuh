@@ -119,7 +119,7 @@ namespace nvexec::STDEXEC_STREAM_DETAIL_NS {
 
         template <stdexec::__decays_to<Sender> S>
             requires (stream_sender<S>)
-          explicit sh_state_t(S& sndr, queue::task_hub_t*)
+          explicit sh_state_t(S& sndr, context_state_t)
             : data_(malloc_managed<variant_t>(status_))
             , op_state2_(std::execution::connect((Sender&&) sndr, inner_receiver_t{*this}))
             , started_(ATOMIC_FLAG_INIT) {
@@ -130,9 +130,9 @@ namespace nvexec::STDEXEC_STREAM_DETAIL_NS {
 
         template <stdexec::__decays_to<Sender> S>
             requires (!stream_sender<S>)
-          explicit sh_state_t(S& sndr, queue::task_hub_t* hub)
+          explicit sh_state_t(S& sndr, context_state_t context_state)
             : data_(malloc_managed<variant_t>(status_))
-            , task_(queue::make_host<task_t>(status_, inner_receiver_t{*this}, data_).release())
+            , task_(queue::make_host<task_t>(status_, inner_receiver_t{*this}, data_, cudaStream_t{} /* TODO BUGBUG Stream */).release())
             , op_state2_(
                 std::execution::connect(
                   (Sender&&)sndr,
@@ -140,7 +140,7 @@ namespace nvexec::STDEXEC_STREAM_DETAIL_NS {
                     exec::make_env(stdexec::__with(std::execution::get_stop_token, stop_source_.get_token())), 
                     data_, 
                     task_, 
-                    hub->producer()})) 
+                    context_state.hub_->producer()})) 
             , started_(ATOMIC_FLAG_INIT) {
           }
 
@@ -309,9 +309,9 @@ namespace nvexec::STDEXEC_STREAM_DETAIL_NS {
             set_value_t,
             set_error_t>;
 
-      explicit split_sender_t(Sender sndr, queue::task_hub_t* hub)
+      explicit split_sender_t(context_state_t context_state, Sender sndr)
           : sndr_((Sender&&) sndr)
-          , shared_state_{std::make_shared<sh_state_>(sndr_, hub)}
+          , shared_state_{std::make_shared<sh_state_>(sndr_, context_state)}
       {}
     };
 }

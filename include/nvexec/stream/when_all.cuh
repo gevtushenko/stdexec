@@ -86,13 +86,13 @@ template <class Env, class... Senders>
 template <bool WithCompletionScheduler, class Scheduler, class... SenderIds>
   struct when_all_sender_t : stream_sender_base {
     template <class... Sndrs>
-      explicit when_all_sender_t(queue::task_hub_t* hub, Sndrs&&... __sndrs)
-        : hub_(hub)
+      explicit when_all_sender_t(context_state_t context_state, Sndrs&&... __sndrs)
+        : context_state_(context_state)
         , sndrs_((Sndrs&&) __sndrs...)
       {}
 
    private:
-    const queue::task_hub_t* hub_{};
+    context_state_t context_state_;
 
     template <class CvrefEnv>
       using completion_sigs =
@@ -300,16 +300,13 @@ template <bool WithCompletionScheduler, class Scheduler, class... SenderIds>
             , child_states_{
                 stdexec::__conv{[&when_all, this]() {
                   operation_t* parent_op = this;
-                  queue::task_hub_t* hub = 
-                    const_cast<queue::task_hub_t*>(
-                      std::execution::get_completion_scheduler<std::execution::set_value_t>(
-                        std::get<Is>(when_all.sndrs_)
-                      ).hub_);
+                  auto sch = std::execution::get_completion_scheduler<std::execution::set_value_t>(std::get<Is>(when_all.sndrs_));
+                  context_state_t context_state = sch.context_state_;
                   return exit_op_state<decltype(std::get<Is>(((WhenAll&&)when_all).sndrs_)),
                                        receiver_t<CvrefReceiverId, Is>>(
-                           hub,
                            std::get<Is>(((WhenAll&&) when_all).sndrs_), 
-                           receiver_t<CvrefReceiverId, Is>{{}, {}, parent_op});
+                           receiver_t<CvrefReceiverId, Is>{{}, {}, parent_op},
+                           context_state);
                 }}...
               } {
             status_ = STDEXEC_DBG_ERR(cudaMallocManaged(&values_, sizeof(child_values_tuple_t)));
@@ -395,7 +392,7 @@ template <bool WithCompletionScheduler, class Scheduler, class... SenderIds>
     template <stdexec::__one_of<std::execution::set_value_t, std::execution::set_stopped_t> _Tag>
         requires WithCompletionScheduler
       friend Scheduler tag_invoke(std::execution::get_completion_scheduler_t<_Tag>, const when_all_sender_t& __self) noexcept {
-        return Scheduler(__self.hub_);
+        return Scheduler(__self.context_state_);
       }
 
     std::tuple<stdexec::__t<SenderIds>...> sndrs_;

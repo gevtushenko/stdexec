@@ -251,11 +251,11 @@ namespace nvexec::STDEXEC_STREAM_DETAIL_NS {
           __operation(_Sender&& __sndr, _Receiver2&& __rcvr, _Fun __fun)
             : __operation_base<_SenderId, _ReceiverId, _FunId, _Let>(
                 (_Sender&&) __sndr,
-                std::execution::get_completion_scheduler<std::execution::set_value_t>(__sndr).hub_,
                 (_Receiver2&&)__rcvr,
                 [this] (operation_state_base_t<stdexec::__x<_Receiver2>> &) -> __receiver_t {
                   return __receiver_t{{}, this};
-                })
+                },
+                std::execution::get_completion_scheduler<std::execution::set_value_t>(__sndr).context_state_)
             , __fun_((_Fun&&) __fun)
           {}
         STDEXEC_IMMOVABLE(__operation);

@@ -130,11 +130,11 @@ namespace nvexec {
           friend auto tag_invoke(std::execution::connect_t, const sender_t& self, R&& rec)
             noexcept(std::is_nothrow_constructible_v<std::remove_cvref_t<R>, R>)
             -> operation_state_t<stdexec::__x<std::remove_cvref_t<R>>> {
-            return operation_state_t<stdexec::__x<std::remove_cvref_t<R>>>((R&&) rec, self.priority_);
+            return operation_state_t<stdexec::__x<std::remove_cvref_t<R>>>((R&&) rec, self.context_state_.priority_);
           }
 
         stream_scheduler make_scheduler() const {
-          return stream_scheduler{hub_, priority_};
+          return stream_scheduler{context_state_};
         }
 
         template <class CPO>
@@ -143,20 +143,17 @@ namespace nvexec {
           return self.make_scheduler();
         }
 
-        sender_t(queue::task_hub_t* hub,
-                 stream_priority priority) noexcept
-          : hub_(hub) 
-          , priority_(priority) {
+        sender_t(context_state_t context_state) noexcept
+          : context_state_(context_state) {
         }
 
-        queue::task_hub_t * hub_;
-        stream_priority priority_;
+        context_state_t context_state_;
       };
 
       template <std::execution::sender S>
         friend schedule_from_sender_th<S>
         tag_invoke(std::execution::schedule_from_t, const stream_scheduler& sch, S&& sndr) noexcept {
-          return schedule_from_sender_th<S>(sch.hub_, sch.priority_, (S&&) sndr);
+          return schedule_from_sender_th<S>(sch.context_state_, (S&&) sndr);
         }
 
       template <std::execution::sender S, std::integral Shape, class Fn>
@@ -174,7 +171,7 @@ namespace nvexec {
       template <std::execution::sender S>
         friend ensure_started_th<S>
         tag_invoke(std::execution::ensure_started_t, const stream_scheduler& sch, S&& sndr) noexcept {
-          return ensure_started_th<S>((S&&) sndr, sch.hub_);
+          return ensure_started_th<S>(sch.context_state_, (S&&) sndr);
         }
 
       template <stdexec::__one_of<
@@ -203,7 +200,7 @@ namespace nvexec {
       template <std::execution::sender... Senders>
         friend auto
         tag_invoke(std::execution::transfer_when_all_t, const stream_scheduler& sch, Senders&&... sndrs) noexcept {
-          return transfer_when_all_sender_th<stream_scheduler, Senders...>(sch.hub_, (Senders&&)sndrs...);
+          return transfer_when_all_sender_th<stream_scheduler, Senders...>(sch.context_state_, (Senders&&)sndrs...);
         }
 
       template <std::execution::sender... Senders>
@@ -211,24 +208,25 @@ namespace nvexec {
         tag_invoke(std::execution::transfer_when_all_with_variant_t, const stream_scheduler& sch, Senders&&... sndrs) noexcept {
           return 
             transfer_when_all_sender_th<stream_scheduler, std::tag_invoke_result_t<std::execution::into_variant_t, Senders>...>(
-                sch.hub_, 
+                sch.context_state_, 
                 std::execution::into_variant((Senders&&)sndrs)...);
         }
 
       template <std::execution::sender S, std::execution::scheduler Sch>
         friend auto
         tag_invoke(std::execution::transfer_t, const stream_scheduler& sch, S&& sndr, Sch&& scheduler) noexcept {
-          return std::execution::schedule_from((Sch&&)scheduler, transfer_sender_th<S>(sch.hub_, (S&&)sndr));
+          return std::execution::schedule_from((Sch&&)scheduler, transfer_sender_th<S>(
+            sch.context_state_, (S&&)sndr));
         }
 
       template <std::execution::sender S>
         friend split_sender_th<S>
         tag_invoke(std::execution::split_t, const stream_scheduler& sch, S&& sndr) noexcept {
-          return split_sender_th<S>((S&&)sndr, sch.hub_);
+          return split_sender_th<S>(sch.context_state_, (S&&)sndr);
         }
 
       friend sender_t tag_invoke(std::execution::schedule_t, const stream_scheduler& self) noexcept {
-        return {self.hub_, self.priority_};
+        return {self.context_state_};
       }
 
       friend std::true_type tag_invoke(stdexec::__has_algorithm_customizations_t, const stream_scheduler& self) noexcept {
@@ -238,7 +236,7 @@ namespace nvexec {
       template <std::execution::sender S>
         friend auto
         tag_invoke(std::this_thread::sync_wait_t, const stream_scheduler& self, S&& sndr) {
-          return sync_wait::sync_wait_t{}(self.hub_, (S&&)sndr);
+          return sync_wait::sync_wait_t{}(self.context_state_, (S&&)sndr);
         }
 
       friend std::execution::forward_progress_guarantee tag_invoke(
@@ -247,16 +245,16 @@ namespace nvexec {
         return std::execution::forward_progress_guarantee::weakly_parallel;
       }
 
-      bool operator==(const stream_scheduler&) const noexcept = default;
+      bool operator==(const stream_scheduler& other) const noexcept {
+        return context_state_.hub_ == other.context_state_.hub_;
+      }
 
-      stream_scheduler(const queue::task_hub_t* hub, stream_priority priority)
-        : hub_(const_cast<queue::task_hub_t*>(hub))
-        , priority_(priority) {
+      stream_scheduler(context_state_t context_state)
+        : context_state_(context_state) {
       }
 
     // private: TODO
-      queue::task_hub_t* hub_{};
-      stream_priority priority_{stream_priority::normal};
+      context_state_t context_state_;
     };
 
     template <stream_completing_sender Sender>
@@ -298,7 +296,7 @@ namespace nvexec {
     STDEXEC_STREAM_DETAIL_NS::queue::task_hub_t hub{};
 
     stream_scheduler get_scheduler(stream_priority priority = stream_priority::normal) {
-      return {&hub, priority};
+      return {STDEXEC_STREAM_DETAIL_NS::context_state_t(&hub, priority)};
     }
   };
 }
