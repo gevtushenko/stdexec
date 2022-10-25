@@ -453,52 +453,17 @@ int main(int argc, char *argv[]) {
   std::size_t report_step = 0;
   auto write = distributed::dump_vtk(write_wtk, rank, report_step, accessor);
 
-#define OVERLAP
-#if defined(OVERLAP)
-  exec::static_thread_pool thread_pool_ctx{2};
-  auto cpu = thread_pool_ctx.get_scheduler();
-
-  const std::size_t border_cells = N;
-  const std::size_t bulk_cells = accessor.own_cells() - border_cells;
-
-  auto border_h_update = distributed::update_h(accessor);
-  auto bulk_h_update = shift(border_cells, distributed::update_h(accessor));
-
-  auto border_e_update = shift(bulk_cells, distributed::update_e(time.get(), dt, accessor));
-  auto bulk_e_update = distributed::update_e(time.get(), dt, accessor);
-
   for (std::size_t compute_step = 0; compute_step < n_iterations; compute_step++) {
-    auto compute_h = ex::when_all(
-      ex::just() | exec::on(gpu, ex::bulk(bulk_cells, bulk_h_update)),
-      ex::just() | exec::on(gpu_with_priority, ex::bulk(border_cells, border_h_update)) | exec::on(cpu, ex::then(exchange_hx))
-    );
+    auto snd = ex::just() 
+             | exec::on(gpu, ex::bulk(accessor.own_cells(), distributed::update_h(accessor)))
+             | ex::then(exchange_hx)
+             | exec::on(gpu, ex::bulk(accessor.own_cells(), distributed::update_e(time.get(), dt, accessor)))
+             | ex::then(exchange_ez);
 
-    auto compute_e = ex::when_all(
-      ex::just() | exec::on(gpu, ex::bulk(bulk_cells, bulk_e_update)),
-      ex::just() | exec::on(gpu_with_priority, ex::bulk(border_cells, border_e_update)) | exec::on(cpu, ex::then(exchange_ez))
-    );
-
-    std::this_thread::sync_wait(std::move(compute_h));
-    std::this_thread::sync_wait(std::move(compute_e));
+    std::this_thread::sync_wait(std::move(snd)); 
   }
 
   write();
-#else
-  for (std::size_t compute_step = 0; compute_step < n_iterations; compute_step++) {
-    auto compute_h = ex::just() 
-                   | exec::on(gpu, ex::bulk(accessor.own_cells(), distributed::update_h(accessor)))
-                   | ex::then(exchange_hx);
-
-    auto compute_e = ex::just() 
-                   | exec::on(gpu, ex::bulk(accessor.own_cells(), distributed::update_e(time.get(), dt, accessor)))
-                   | ex::then(exchange_ez);
-
-    std::this_thread::sync_wait(std::move(compute_h)); 
-    std::this_thread::sync_wait(std::move(compute_e)); 
-  }
-
-  write();
-#endif
 
 #if MPI_ENABLED
   MPI_Finalize();
