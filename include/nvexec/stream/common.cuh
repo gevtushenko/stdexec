@@ -342,16 +342,16 @@ namespace nvexec {
         }
 
         template <class Tag, class... As>
-        void propagate_completion_signal(Tag tag, As&&... as) noexcept {
-          if constexpr (stream_receiver<outer_receiver_t>) {
-            tag((outer_receiver_t&&)receiver_, (As&&)as...);
-          } else {
-            continuation_kernel
-              <std::decay_t<outer_receiver_t>, Tag, As...>
-                <<<1, 1, 0, get_stream()>>>(
-                  receiver_, tag, (As&&)as...);
+          void propagate_completion_signal(Tag tag, As&&... as) noexcept {
+            if constexpr (stream_receiver<outer_receiver_t>) {
+              tag((outer_receiver_t&&)receiver_, (As&&)as...);
+            } else {
+              continuation_kernel
+                <std::decay_t<outer_receiver_t>, Tag, As...>
+                  <<<1, 1, 0, get_stream()>>>(
+                    receiver_, tag, (As&&)as...);
+            }
           }
-        }
 
         ~operation_state_base_t() {
           if (own_stream_) {
