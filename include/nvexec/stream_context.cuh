@@ -84,7 +84,7 @@ namespace nvexec {
           cudaError_t status_{cudaSuccess};
 
           operation_state_t(Receiver&& receiver, context_state_t context_state) 
-            : operation_state_base_t<ReceiverId>((Receiver&&)receiver, context_state) {
+            : operation_state_base_t<ReceiverId>((Receiver&&)receiver, context_state, false) {
           }
 
           friend void tag_invoke(std::execution::start_t, operation_state_t& op) noexcept {

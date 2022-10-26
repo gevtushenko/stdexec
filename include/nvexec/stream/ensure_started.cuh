@@ -220,9 +220,10 @@ namespace nvexec::STDEXEC_STREAM_DETAIL_NS {
                     stdexec::__intrusive_ptr<sh_state_t<SenderId>> shared_state)
             noexcept(std::is_nothrow_move_constructible_v<Receiver>)
           : operation_base_t{notify}
-          , operation_state_base_t<ReceiverId>((Receiver&&)rcvr, shared_state->context_state_)
+          , operation_state_base_t<ReceiverId>((Receiver&&)rcvr, shared_state->context_state_, false)
           , shared_state_(std::move(shared_state)) {
         }
+
         ~operation_t() {
           // Check to see if this operation was ever started. If not,
           // detach the (potentially still running) operation:
@@ -230,6 +231,7 @@ namespace nvexec::STDEXEC_STREAM_DETAIL_NS {
             shared_state_->detach();
           }
         }
+
         STDEXEC_IMMOVABLE(operation_t);
 
         static void notify(operation_base_t* self) noexcept {

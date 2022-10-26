@@ -289,6 +289,7 @@ namespace nvexec {
             continuation_task_t &self = *reinterpret_cast<continuation_task_t*>(t);
             STDEXEC_DBG_ERR(cudaFreeAsync(self.atom_next_, self.stream_));
             STDEXEC_DBG_ERR(cudaFreeHost(t));
+            STDEXEC_DBG_ERR(cudaStreamDestroy(self.stream_));
           };
 
           this->next_ = nullptr;
@@ -314,11 +315,14 @@ namespace nvexec {
         outer_receiver_t receiver_;
         cudaError_t status_{cudaSuccess};
         std::optional<cudaStream_t> own_stream_{};
+        bool deffer_stream_destruction_{false};
 
         operation_state_base_t(
             outer_receiver_t receiver, 
-            context_state_t context_state)
-          : receiver_(receiver) {
+            context_state_t context_state,
+            bool deffer_stream_destruction)
+          : receiver_(receiver)
+          , deffer_stream_destruction_(deffer_stream_destruction) {
           if constexpr(!borrows_stream) {
             std::tie(own_stream_, status_) = create_stream_with_priority(context_state.priority_);
           }
@@ -355,7 +359,9 @@ namespace nvexec {
 
         ~operation_state_base_t() {
           if (own_stream_) {
-            STDEXEC_DBG_ERR(cudaStreamDestroy(*own_stream_));
+            if (!deffer_stream_destruction_) {
+              STDEXEC_DBG_ERR(cudaStreamDestroy(*own_stream_));
+            }
             own_stream_.reset();
           }
 
@@ -425,14 +431,14 @@ namespace nvexec {
         template <stdexec::__decays_to<outer_receiver_t> OutR, class ReceiverProvider>
             requires stream_sender<sender_t>
           operation_state_t(sender_t&& sender, OutR&& out_receiver, ReceiverProvider receiver_provider, context_state_t context_state)
-            : operation_state_base_t<OuterReceiverId>((outer_receiver_t&&)out_receiver, context_state)
+            : operation_state_base_t<OuterReceiverId>((outer_receiver_t&&)out_receiver, context_state, false)
             , inner_op_{std::execution::connect((sender_t&&)sender, receiver_provider(*this))} {
           }
 
         template <stdexec::__decays_to<outer_receiver_t> OutR, class ReceiverProvider>
             requires (!stream_sender<sender_t>)
           operation_state_t(sender_t&& sender, OutR&& out_receiver, ReceiverProvider receiver_provider, context_state_t context_state)
-            : operation_state_base_t<OuterReceiverId>((outer_receiver_t&&)out_receiver, context_state)
+            : operation_state_base_t<OuterReceiverId>((outer_receiver_t&&)out_receiver, context_state, true)
             , storage_(queue::make_host<variant_t>(this->status_))
             , task_(queue::make_host<task_t>(this->status_, receiver_provider(*this), storage_.get(), this->get_stream()).release())
             , started_(ATOMIC_FLAG_INIT)

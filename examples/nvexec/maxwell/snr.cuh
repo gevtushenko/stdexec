@@ -165,7 +165,8 @@ namespace nvexec::STDEXEC_STREAM_DETAIL_NS {
         operation_state_t(PredSender&& pred_sender, Closure closure, Receiver&& receiver, std::size_t n)
           : operation_state_base_t<ReceiverId>(
               (Receiver&&)receiver, 
-              std::execution::get_completion_scheduler<std::execution::set_value_t>(pred_sender).context_state_)
+              std::execution::get_completion_scheduler<std::execution::set_value_t>(pred_sender).context_state_,
+              false)
           , pred_sender_{(PredSender&&)pred_sender}
           , closure_(closure)
           , n_(n) {

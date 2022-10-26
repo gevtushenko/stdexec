@@ -74,7 +74,7 @@ namespace transfer {
       }
 
       operation_state_t(Sender&& sender, Receiver &&receiver, context_state_t context_state)
-        : operation_state_base_t<ReceiverId>((Receiver&&)receiver, context_state)
+        : operation_state_base_t<ReceiverId>((Receiver&&)receiver, context_state, true)
         , context_state_(context_state)
         , storage_(queue::make_host<variant_t>(this->status_))
         , task_(queue::make_host<task_t>(this->status_, receiver_t{*this}, storage_.get(), this->get_stream()).release())
