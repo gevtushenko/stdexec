@@ -76,47 +76,19 @@ namespace nvexec {
       template <std::execution::sender Sender>
         using schedule_from_sender_th = schedule_from_sender_t<stream_scheduler, stdexec::__x<std::remove_cvref_t<Sender>>>;
 
-      template <class RId>
-        struct operation_state_t : stream_op_state_base {
-          using R = stdexec::__t<RId>;
+      template <class ReceiverId>
+        struct operation_state_t : operation_state_base_t<ReceiverId> {
+          using Receiver = stdexec::__t<ReceiverId>;
 
-          R rec_;
           cudaStream_t stream_{0};
           cudaError_t status_{cudaSuccess};
-          stream_priority priority_{stream_priority::normal};
 
-          operation_state_t(R&& rec, stream_priority priority) 
-            : rec_((R&&)rec) 
-            , priority_(priority) {
-            std::tie(stream_, status_) = create_stream_with_priority(priority);
-          }
-
-          ~operation_state_t() {
-            STDEXEC_DBG_ERR(cudaStreamDestroy(stream_));
-          }
-
-          cudaStream_t get_stream() {
-            return stream_;
+          operation_state_t(Receiver&& receiver, context_state_t context_state) 
+            : operation_state_base_t<ReceiverId>((Receiver&&)receiver, context_state) {
           }
 
           friend void tag_invoke(std::execution::start_t, operation_state_t& op) noexcept {
-            if constexpr (stream_receiver<R>) {
-              if (op.status_ == cudaSuccess) {
-                std::execution::set_value((R&&)op.rec_);
-              } else {
-                std::execution::set_error((R&&)op.rec_, std::move(op.status_));
-              }
-            } else {
-              if (op.status_ == cudaSuccess) {
-                continuation_kernel
-                  <std::decay_t<R>, std::execution::set_value_t>
-                    <<<1, 1, 0, op.stream_>>>(op.rec_, std::execution::set_value);
-              } else {
-                continuation_kernel
-                  <std::decay_t<R>, std::execution::set_error_t, cudaError_t>
-                    <<<1, 1, 0, op.stream_>>>(op.rec_, std::execution::set_error, op.status_);
-              }
-            }
+            op.propagate_completion_signal(std::execution::set_value);
           }
         };
 
@@ -130,7 +102,7 @@ namespace nvexec {
           friend auto tag_invoke(std::execution::connect_t, const sender_t& self, R&& rec)
             noexcept(std::is_nothrow_constructible_v<std::remove_cvref_t<R>, R>)
             -> operation_state_t<stdexec::__x<std::remove_cvref_t<R>>> {
-            return operation_state_t<stdexec::__x<std::remove_cvref_t<R>>>((R&&) rec, self.context_state_.priority_);
+            return operation_state_t<stdexec::__x<std::remove_cvref_t<R>>>((R&&) rec, self.context_state_);
           }
 
         stream_scheduler make_scheduler() const {

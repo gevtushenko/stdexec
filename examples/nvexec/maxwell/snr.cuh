@@ -82,11 +82,8 @@ namespace nvexec::STDEXEC_STREAM_DETAIL_NS {
           ex::start(inner_op_state);
         }
 
-        friend auto tag_invoke(ex::get_env_t, const receiver_2_t& self) noexcept
-          -> make_stream_env_t<stdexec::env_of_t<Receiver>> {
-          return make_stream_env(
-              stdexec::get_env(self.op_state_.receiver_), 
-              std::optional<cudaStream_t>{self.op_state_.stream_});
+        friend typename OpT::env_t tag_invoke(ex::get_env_t, const receiver_2_t& self) noexcept {
+          return self.op_state_.make_env();
         }
 
         explicit receiver_2_t(OpT& op_state)
@@ -125,11 +122,8 @@ namespace nvexec::STDEXEC_STREAM_DETAIL_NS {
           }
         }
 
-        friend auto tag_invoke(ex::get_env_t, const receiver_1_t& self) noexcept
-          -> make_stream_env_t<stdexec::env_of_t<Receiver>> {
-          return make_stream_env(
-              stdexec::get_env(self.op_state_.receiver_), 
-              std::optional<cudaStream_t>{self.op_state_.stream_});
+        friend typename OpT::env_t tag_invoke(ex::get_env_t, const receiver_1_t& self) noexcept {
+          return self.op_state_.make_env();
         }
 
         explicit receiver_1_t(OpT& op_state)
@@ -155,13 +149,7 @@ namespace nvexec::STDEXEC_STREAM_DETAIL_NS {
         std::size_t n_{};
         std::size_t i_{};
 
-        cudaStream_t get_stream() {
-          return this->stream_;
-        }
-
         friend void tag_invoke(std::execution::start_t, operation_state_t& op) noexcept {
-          op.stream_ = op.allocate();
-
           if (op.status_ != cudaSuccess) {
             // Couldn't allocate memory for operation state, complete with error
             op.propagate_completion_signal(std::execution::set_error, std::move(op.status_));
@@ -175,7 +163,9 @@ namespace nvexec::STDEXEC_STREAM_DETAIL_NS {
         }
 
         operation_state_t(PredSender&& pred_sender, Closure closure, Receiver&& receiver, std::size_t n)
-          : operation_state_base_t<ReceiverId>((Receiver&&)receiver)
+          : operation_state_base_t<ReceiverId>(
+              (Receiver&&)receiver, 
+              std::execution::get_completion_scheduler<std::execution::set_value_t>(pred_sender).context_state_)
           , pred_sender_{(PredSender&&)pred_sender}
           , closure_(closure)
           , n_(n) {

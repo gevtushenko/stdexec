@@ -41,7 +41,6 @@ namespace schedule_from {
                                   std::execution::set_stopped_t> Tag,
                 class... As>
       friend void tag_invoke(Tag tag, receiver_t&& self, As&&... as) noexcept {
-        auto stream = self.operation_state_.get_stream();
         storage_t *storage = reinterpret_cast<storage_t*>(self.operation_state_.temp_storage_);
         storage->template emplace<decayed_tuple<Tag, As...>>(Tag{}, (As&&)as...);
 
