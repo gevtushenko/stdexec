@@ -219,17 +219,17 @@ namespace nvexec {
       using make_terminal_stream_env_t = terminal_stream_env<stdexec::__x<BaseEnv>>;
 
     template <class BaseEnv>
-      make_stream_env_t<BaseEnv> make_stream_env(BaseEnv&& base, cudaStream_t stream) noexcept {
+      make_stream_env_t<BaseEnv> make_stream_env(BaseEnv base, cudaStream_t stream) noexcept {
         if constexpr (std::is_base_of_v<stream_env_base, BaseEnv>) {
-          return make_stream_env_t<BaseEnv>{{stream}, ((BaseEnv&&)base).base_env_};
+          return make_stream_env_t<BaseEnv>{{stream}, base.base_env_};
         } else {
-          return make_stream_env_t<BaseEnv>{{stream}, (BaseEnv&&)base};
+          return make_stream_env_t<BaseEnv>{{stream}, base};
         }
       }
 
     template <class BaseEnv>
-      make_terminal_stream_env_t<BaseEnv> make_terminal_stream_env(BaseEnv&& base, cudaStream_t stream) noexcept {
-        return make_terminal_stream_env_t<BaseEnv>{{stream}, (BaseEnv&&)base};
+      make_terminal_stream_env_t<BaseEnv> make_terminal_stream_env(BaseEnv base, cudaStream_t stream) noexcept {
+        return make_terminal_stream_env_t<BaseEnv>{{stream}, base};
       }
 
     template <class S>
