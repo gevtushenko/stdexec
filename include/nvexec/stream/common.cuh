@@ -260,14 +260,14 @@ namespace nvexec {
                                     std::execution::set_stopped_t> Tag,
                   class... As>
           friend void tag_invoke(Tag tag, stream_enqueue_receiver&& self, As&&... as) noexcept {
-            // self.variant_->template emplace<decayed_tuple<Tag, As...>>(Tag{}, (As&&)as...);
+            self.variant_->template emplace<decayed_tuple<Tag, As...>>(Tag{}, (As&&)as...);
             self.producer_(self.task_);
           }
 
         template <stdexec::__decays_to<std::exception_ptr> E>
           friend void tag_invoke(std::execution::set_error_t, stream_enqueue_receiver&& self, E&& e) noexcept {
             // What is `exception_ptr` but death pending
-            // self.variant_->template emplace<decayed_tuple<std::execution::set_error_t, cudaError_t>>(std::execution::set_error, cudaErrorUnknown);
+            self.variant_->template emplace<decayed_tuple<std::execution::set_error_t, cudaError_t>>(std::execution::set_error, cudaErrorUnknown);
             self.producer_(self.task_);
           }
 
@@ -305,21 +305,17 @@ namespace nvexec {
           this->execute_ = [](task_base_t* t) noexcept {
             continuation_task_t &self = *reinterpret_cast<continuation_task_t*>(t);
 
-            std::execution::set_value(std::move(self.receiver_));
-
-            /*
             visit([&self](auto&& tpl) noexcept {
                 ::cuda::std::apply([&self](auto tag, auto&&... as) noexcept {
                   tag(std::move(self.receiver_), std::move(as)...);
                 }, std::move(tpl));
             }, std::move(*self.variant_));
-            */
           };
 
           this->free_ = [](task_base_t* t) noexcept {
             continuation_task_t &self = *reinterpret_cast<continuation_task_t*>(t);
             STDEXEC_DBG_ERR(cudaFreeAsync(self.atom_next_, self.stream_));
-            // STDEXEC_DBG_ERR(cudaFreeHost(t));
+            STDEXEC_DBG_ERR(cudaFreeHost(t));
             STDEXEC_DBG_ERR(cudaStreamDestroy(self.stream_));
           };
 

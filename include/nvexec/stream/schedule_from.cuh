@@ -32,7 +32,7 @@ namespace schedule_from {
       using Env = typename operation_state_base_t<ReceiverId>::env_t;
       using storage_t = variant_storage_t<Sender, Env>;
 
-      constexpr static std::size_t memory_allocation_size = 0;// sizeof(storage_t);
+      constexpr static std::size_t memory_allocation_size = sizeof(storage_t);
 
       operation_state_base_t<ReceiverId>& operation_state_;
 
@@ -41,18 +41,14 @@ namespace schedule_from {
                                   std::execution::set_stopped_t> Tag,
                 class... As>
       friend void tag_invoke(Tag tag, receiver_t&& self, As&&... as) noexcept {
-        if constexpr (sizeof...(As) == 0) {
-          self.operation_state_.template propagate_completion_signal(Tag{});
-        } else {
-          storage_t *storage = reinterpret_cast<storage_t*>(self.operation_state_.temp_storage_);
-          storage->template emplace<decayed_tuple<Tag, As...>>(Tag{}, (As&&)as...);
+        storage_t *storage = reinterpret_cast<storage_t*>(self.operation_state_.temp_storage_);
+        storage->template emplace<decayed_tuple<Tag, As...>>(Tag{}, (As&&)as...);
 
-          visit([&](auto& tpl) noexcept {
-            apply([&](auto& tag, auto&... tas) noexcept {
-              self.operation_state_.template propagate_completion_signal(tag, tas...);
-            }, tpl);
-          }, *storage);
-        }
+        visit([&](auto& tpl) noexcept {
+          apply([&](auto tag, auto&... tas) noexcept {
+            self.operation_state_.template propagate_completion_signal(tag, tas...);
+          }, tpl);
+        }, *storage);
       }
 
       friend Env 
