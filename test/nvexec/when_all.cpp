@@ -62,8 +62,6 @@ TEST_CASE("when_all with many senders", "[cuda][stream][adaptors][when_all]") {
   REQUIRE(v5 == 5);
 }
 
-// TODO NVBUG
-#if 0 
 TEST_CASE("when_all works with unknown senders", "[cuda][stream][adaptors][when_all]") {
   nvexec::stream_context stream_ctx{};
   auto sch = stream_ctx.get_scheduler();
@@ -76,5 +74,4 @@ TEST_CASE("when_all works with unknown senders", "[cuda][stream][adaptors][when_
   REQUIRE(v1 == 24);
   REQUIRE(v2 == 42);
 }
-#endif
 
