@@ -52,7 +52,7 @@ namespace transfer {
       cudaError_t status_{cudaSuccess};
       context_state_t context_state_;
 
-      queue::host_ptr<variant_t> storage_;
+      variant_t *storage_;
       task_t *task_;
 
       ::cuda::std::atomic_flag started_;
@@ -76,15 +76,15 @@ namespace transfer {
       operation_state_t(Sender&& sender, Receiver &&receiver, context_state_t context_state)
         : operation_state_base_t<ReceiverId>((Receiver&&)receiver, context_state, true)
         , context_state_(context_state)
-        , storage_(queue::make_host<variant_t>(this->status_))
-        , task_(queue::make_host<task_t>(this->status_, receiver_t{*this}, storage_.get(), this->get_stream()).release())
+        , storage_(queue::make_host<variant_t>(this->status_).release())
+        , task_(queue::make_host<task_t>(this->status_, receiver_t{*this}, storage_, this->get_stream()).release())
         , started_(ATOMIC_FLAG_INIT)
         , inner_op_{
             std::execution::connect(
                 (Sender&&)sender,
                 enqueue_receiver{
                   this->make_env(), 
-                  storage_.get(), 
+                  storage_, 
                   task_, 
                   context_state_.hub_->producer()})} {
         if (this->status_ == cudaSuccess) {
