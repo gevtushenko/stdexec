@@ -16,11 +16,13 @@
 #pragma once
 
 #include <atomic>
+#include <memory_resource>
 #include "../../stdexec/execution.hpp"
 
 #include <cuda/std/type_traits>
 #include <cuda/std/tuple>
 #include <optional>
+#include <type_traits>
 
 #include "../detail/config.cuh"
 #include "../detail/cuda_atomic.cuh"
@@ -62,13 +64,16 @@ namespace nvexec {
 
   namespace STDEXEC_STREAM_DETAIL_NS {
     struct context_state_t {
+      std::pmr::memory_resource *pinned_resource_{nullptr};
       queue::task_hub_t* hub_{nullptr};
       stream_priority priority_;
 
       context_state_t(
+        std::pmr::memory_resource *pinned_resource,
         queue::task_hub_t* hub,
         stream_priority priority = stream_priority::normal)
-        : hub_(hub)
+        : pinned_resource_(pinned_resource)
+        , hub_(hub)
         , priority_(priority) {
       }
     };
@@ -295,13 +300,15 @@ namespace nvexec {
       struct continuation_task_t : queue::task_base_t {
         Receiver receiver_;
         Variant* variant_;
-        cudaStream_t stream_;
+        cudaStream_t stream_{};
+        std::pmr::memory_resource *pinned_resource_{};
         cudaError_t status_{cudaSuccess};
 
-        continuation_task_t(Receiver receiver, Variant* variant, cudaStream_t stream) noexcept 
+        continuation_task_t(Receiver receiver, Variant* variant, cudaStream_t stream, std::pmr::memory_resource *pinned_resource) noexcept 
           : receiver_{receiver}
           , variant_{variant}
-          , stream_{stream} {
+          , stream_{stream}
+          , pinned_resource_(pinned_resource) {
           this->execute_ = [](task_base_t* t) noexcept {
             continuation_task_t &self = *reinterpret_cast<continuation_task_t*>(t);
 
@@ -315,8 +322,8 @@ namespace nvexec {
           this->free_ = [](task_base_t* t) noexcept {
             continuation_task_t &self = *reinterpret_cast<continuation_task_t*>(t);
             STDEXEC_DBG_ERR(cudaFreeAsync(self.atom_next_, self.stream_));
-            STDEXEC_DBG_ERR(cudaFreeHost(t)); // Synchronous...
             STDEXEC_DBG_ERR(cudaStreamDestroy(self.stream_));
+            self.pinned_resource_->deallocate(t, sizeof(continuation_task_t), std::alignment_of_v<continuation_task_t>);
           };
 
           this->next_ = nullptr;
@@ -466,8 +473,8 @@ namespace nvexec {
             requires (!stream_sender<sender_t>)
           operation_state_t(sender_t&& sender, OutR&& out_receiver, ReceiverProvider receiver_provider, context_state_t context_state)
             : operation_state_base_t<OuterReceiverId>((outer_receiver_t&&)out_receiver, context_state, true)
-            , storage_(queue::make_host<variant_t>(this->status_))
-            , task_(queue::make_host<task_t>(this->status_, receiver_provider(*this), storage_.get(), this->get_stream()).release())
+            , storage_(queue::make_host<variant_t>(this->status_, context_state.pinned_resource_))
+            , task_(queue::make_host<task_t>(this->status_, context_state.pinned_resource_, receiver_provider(*this), storage_.get(), this->get_stream(), context_state.pinned_resource_).release())
             , started_(ATOMIC_FLAG_INIT)
             , inner_op_{
                 std::execution::connect((sender_t&&)sender,

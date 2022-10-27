@@ -17,6 +17,7 @@
 
 #include "../stdexec/execution.hpp"
 #include <type_traits>
+#include <memory_resource>
 
 #include "detail/config.cuh"
 #include "stream/sync_wait.cuh"
@@ -237,14 +238,14 @@ namespace nvexec {
     template <stream_completing_sender... Senders>
       when_all_sender_th<stream_scheduler, Senders...>
       tag_invoke(std::execution::when_all_t, Senders&&... sndrs) noexcept {
-        return when_all_sender_th<stream_scheduler, Senders...>{nullptr, (Senders&&)sndrs...};
+        return when_all_sender_th<stream_scheduler, Senders...>{context_state_t{nullptr, nullptr}, (Senders&&)sndrs...};
       }
 
     template <stream_completing_sender... Senders>
       when_all_sender_th<stream_scheduler, std::tag_invoke_result_t<std::execution::into_variant_t, Senders>...>
       tag_invoke(std::execution::when_all_with_variant_t, Senders&&... sndrs) noexcept {
         return when_all_sender_th<stream_scheduler, std::tag_invoke_result_t<std::execution::into_variant_t, Senders>...>{
-          nullptr, 
+          context_state_t{nullptr, nullptr}, 
           std::execution::into_variant((Senders&&)sndrs)...
         };
       }
@@ -260,15 +261,48 @@ namespace nvexec {
       tag_invoke(std::execution::upon_stopped_t, S&& sndr, Fn fun) noexcept {
         return upon_stopped_sender_th<S, Fn>{{}, (S&&) sndr, (Fn&&)fun};
       }
+
+    struct pinned_resource : public std::pmr::memory_resource {
+      void* do_allocate(size_t bytes, size_t /* alignment */) override {
+        void* ret;
+
+        if (cudaError_t status = STDEXEC_DBG_ERR(cudaMallocHost(&ret, bytes)); status != cudaSuccess) {
+          throw std::bad_alloc();
+        }
+
+        return ret;
+      }
+
+      void do_deallocate(void* ptr, size_t /* bytes */, size_t /* alignment */) override {
+        STDEXEC_DBG_ERR(cudaFreeHost(ptr));
+      }
+
+      bool do_is_equal(const std::pmr::memory_resource& other) const noexcept override {
+        return this == &other;
+      }
+        
+    private:
+      std::pmr::memory_resource* _upstream;
+    };
   }
 
   using STDEXEC_STREAM_DETAIL_NS::stream_scheduler;
 
   struct stream_context {
-    STDEXEC_STREAM_DETAIL_NS::queue::task_hub_t hub{};
+    STDEXEC_STREAM_DETAIL_NS::pinned_resource pinned_resource_{};
+    std::pmr::monotonic_buffer_resource monotonic_resource_;
+    std::pmr::synchronized_pool_resource resource_;
+
+    STDEXEC_STREAM_DETAIL_NS::queue::task_hub_t hub_;
+
+    stream_context()
+      : monotonic_resource_(512 * 1024, &pinned_resource_)
+      , resource_(&monotonic_resource_)
+      , hub_(&resource_) {
+    }
 
     stream_scheduler get_scheduler(stream_priority priority = stream_priority::normal) {
-      return {STDEXEC_STREAM_DETAIL_NS::context_state_t(&hub, priority)};
+      return {STDEXEC_STREAM_DETAIL_NS::context_state_t(&resource_, &hub_, priority)};
     }
   };
 }

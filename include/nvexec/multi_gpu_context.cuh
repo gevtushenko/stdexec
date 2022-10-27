@@ -213,9 +213,17 @@ namespace nvexec {
 
   struct multi_gpu_stream_context {
     int num_devices{};
-    STDEXEC_STREAM_DETAIL_NS::queue::task_hub_t hub{};
 
-    multi_gpu_stream_context() {
+    STDEXEC_STREAM_DETAIL_NS::pinned_resource pinned_resource_{};
+    std::pmr::monotonic_buffer_resource monotonic_resource_;
+    std::pmr::synchronized_pool_resource resource_;
+
+    STDEXEC_STREAM_DETAIL_NS::queue::task_hub_t hub_;
+
+    multi_gpu_stream_context()
+      : monotonic_resource_(512 * 1024, &pinned_resource_)
+      , resource_(&monotonic_resource_)
+      , hub_(&resource_) {
       // TODO Manage errors
       int current_device{};
       cudaGetDevice(&current_device);
@@ -238,7 +246,7 @@ namespace nvexec {
     }
 
     multi_gpu_stream_scheduler get_scheduler() {
-      return {num_devices, &hub};
+      return {num_devices, &hub_};
     }
   };
 }

@@ -152,7 +152,7 @@ namespace nvexec::STDEXEC_STREAM_DETAIL_NS {
             : context_state_(context_state)
             , stream_(create_stream(status_, context_state_))
             , data_(malloc_managed<variant_t>(status_))
-            , task_(queue::make_host<task_t>(status_, inner_receiver_t{*this}, data_, stream_).release())
+            , task_(queue::make_host<task_t>(status_, context_state.pinned_resource_, inner_receiver_t{*this}, data_, stream_, context_state.pinned_resource_).release())
             , op_state2_(
                 std::execution::connect(
                   (Sender&&)sndr,
