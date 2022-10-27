@@ -315,7 +315,7 @@ namespace nvexec {
           this->free_ = [](task_base_t* t) noexcept {
             continuation_task_t &self = *reinterpret_cast<continuation_task_t*>(t);
             STDEXEC_DBG_ERR(cudaFreeAsync(self.atom_next_, self.stream_));
-            STDEXEC_DBG_ERR(cudaFreeHost(t));
+            STDEXEC_DBG_ERR(cudaFreeHost(t)); // Synchronous...
             STDEXEC_DBG_ERR(cudaStreamDestroy(self.stream_));
           };
 
