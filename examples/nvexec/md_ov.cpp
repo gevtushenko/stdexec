@@ -456,7 +456,6 @@ int main(int argc, char *argv[]) {
   MPI_Barrier(MPI_COMM_WORLD);
   const auto begin = std::chrono::system_clock::now();
 
-#if defined(OVERLAP)
   exec::static_thread_pool thread_pool_ctx{2};
   auto cpu = thread_pool_ctx.get_scheduler();
 
@@ -485,22 +484,6 @@ int main(int argc, char *argv[]) {
   }
 
   write();
-#else
-  for (std::size_t compute_step = 0; compute_step < n_iterations; compute_step++) {
-    auto compute_h = ex::just() 
-                   | exec::on(gpu, ex::bulk(accessor.own_cells(), distributed::update_h(accessor)))
-                   | ex::then(exchange_hx);
-
-    auto compute_e = ex::just() 
-                   | exec::on(gpu, ex::bulk(accessor.own_cells(), distributed::update_e(time.get(), dt, accessor)))
-                   | ex::then(exchange_ez);
-
-    stdexec::this_thread::sync_wait(std::move(compute_h)); 
-    stdexec::this_thread::sync_wait(std::move(compute_e)); 
-  }
-
-  write();
-#endif
 
   MPI_Barrier(MPI_COMM_WORLD);
   const auto end = std::chrono::system_clock::now();
