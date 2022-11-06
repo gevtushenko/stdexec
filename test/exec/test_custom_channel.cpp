@@ -79,9 +79,28 @@ inline void check_sends_custom(S snd) {
   static_assert(std::is_same<t, Expected>::value);
 }
 
+TEST_CASE("custom channel can appear in the completion signatures", "[custom_channel]") {
+  auto snd = custom_just{13};
+  static_assert(ex::sender<decltype(snd)>);
+  (void)snd;
+}
+
 TEST_CASE("custom channel can be advertized", "[custom_channel]") {
   auto snd = custom_just{13};
   check_sends_custom<type_array<type_array<int>>>(snd);
   (void)snd;
+}
+
+struct custom_recv_int {
+  friend void tag_invoke(custom_channel_t, custom_recv_int&&, int) noexcept {}
+  friend void tag_invoke(ex::set_value_t, custom_recv_int&&, int) noexcept {}
+  friend void tag_invoke(ex::set_stopped_t, custom_recv_int&&) noexcept {}
+  friend void tag_invoke(ex::set_error_t, custom_recv_int&&, std::exception_ptr) noexcept {}
+  friend empty_env tag_invoke(ex::get_env_t, const custom_recv_int&) noexcept { return {}; }
+};
+
+TEST_CASE("custom channel can be expected by receivers", "[custom_channel]") {
+  auto op = ex::connect(custom_just{13}, custom_recv_int{});
+  (void)op;
 }
 
