@@ -46,14 +46,12 @@ struct custom_just {
     std::tuple<Values...> values_;
     Receiver rcvr_;
 
-    friend void tag_invoke(ex::start_t, operation& self) noexcept try {
+    friend void tag_invoke(ex::start_t, operation& self) noexcept {
       std::apply(
         [&](Values&... ts) {
-          ex::set_value(std::move(self.rcvr_), std::move(ts)...);
+          custom_channel_t{}(std::move(self.rcvr_), std::move(ts)...);
         },
         self.values_);
-    } catch(...) {
-      ex::set_error(std::move(self.rcvr_), std::current_exception());
     }
   };
 
@@ -92,15 +90,21 @@ TEST_CASE("custom channel can be advertized", "[custom_channel]") {
 }
 
 struct custom_recv_int {
-  friend void tag_invoke(custom_channel_t, custom_recv_int&&, int) noexcept {}
-  friend void tag_invoke(ex::set_value_t, custom_recv_int&&, int) noexcept {}
-  friend void tag_invoke(ex::set_stopped_t, custom_recv_int&&) noexcept {}
-  friend void tag_invoke(ex::set_error_t, custom_recv_int&&, std::exception_ptr) noexcept {}
+  int expected_{};
+  bool &ok_;
+
+  friend void tag_invoke(custom_channel_t, custom_recv_int&& self, int val) noexcept {
+    self.ok_ = val == self.expected_;
+  }
+
   friend empty_env tag_invoke(ex::get_env_t, const custom_recv_int&) noexcept { return {}; }
 };
 
 TEST_CASE("custom channel can be expected by receivers", "[custom_channel]") {
-  auto op = ex::connect(custom_just{13}, custom_recv_int{});
-  (void)op;
+  bool ok{false};
+  auto op = ex::connect(custom_just{13}, custom_recv_int{13, ok});
+  ex::start(op);
+
+  REQUIRE(ok);
 }
 
