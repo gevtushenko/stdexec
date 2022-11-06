@@ -299,6 +299,24 @@ namespace stdexec {
       }
   } __try_call {};
 
+  struct custom_completion_channel_t {
+    template <class _Tag>
+    constexpr bool operator()(_Tag __tag) const noexcept {
+      if constexpr (tag_invocable<custom_completion_channel_t, _Tag>) {
+        static_assert(noexcept(tag_invoke(*this, (_Tag&&) __tag) ? true : false));
+        return tag_invoke(*this, (_Tag&&) __tag) ? true : false;
+      } else {
+        return false;
+      }
+    }
+  };
+
+  inline constexpr custom_completion_channel_t custom_completion_channel{};
+
+  template <class _Tag>
+    concept __custom_completion_channel =
+      custom_completion_channel(_Tag{});
+
   /////////////////////////////////////////////////////////////////////////////
   // completion_signatures
   namespace __compl_sigs {
@@ -322,6 +340,8 @@ namespace stdexec {
 
     #else
 
+    template <__custom_completion_channel _Tag, class _Ty = __q<__types>, class... _Args>
+      __types<__minvoke<_Ty, _Args...>> __test(_Tag(*)(_Args...));
     template <same_as<set_value_t> _Tag, class _Ty = __q<__types>, class... _Args>
       __types<__minvoke<_Ty, _Args...>> __test(_Tag(*)(_Args...));
     template <same_as<set_error_t> _Tag, class _Ty = __q<__types>, class _Error>
