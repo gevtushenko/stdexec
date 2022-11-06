@@ -63,7 +63,7 @@ struct custom_just {
 };
 
 template <class... Values>
-custom_just(Values...) -> custom_just<Values...>;
+  custom_just(Values...) -> custom_just<Values...>;
 
 template <class _Sender,
           class _Env = ex::no_env>
@@ -103,6 +103,33 @@ struct custom_recv_int {
 TEST_CASE("custom channel can be expected by receivers", "[custom_channel]") {
   bool ok{false};
   auto op = ex::connect(custom_just{13}, custom_recv_int{13, ok});
+  ex::start(op);
+
+  REQUIRE(ok);
+}
+
+template <class Receiver>
+  class fwd_recv : ex::receiver_adaptor<fwd_recv<Receiver>, Receiver> {
+    friend ex::receiver_adaptor<fwd_recv<Receiver>, Receiver>;
+
+    template <class... As>
+      void set_value(As&&... as) && noexcept {
+        std::printf("customize set_value\n");
+        ex::set_value_t(((fwd_recv&&) *this).base(), (As&&)as...);
+      }
+
+  public:
+    fwd_recv(Receiver receiver) 
+      : ex::receiver_adaptor<fwd_recv<Receiver>, Receiver>(receiver) {
+    }
+  };
+
+template <class Receiver>
+  fwd_recv(Receiver) -> fwd_recv<Receiver>;
+
+TEST_CASE("custom channels are forwarded by receivers", "[custom_channel]") {
+  bool ok{false};
+  auto op = ex::connect(custom_just{13}, fwd_recv(custom_recv_int{13, ok}));
   ex::start(op);
 
   REQUIRE(ok);

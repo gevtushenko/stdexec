@@ -2216,6 +2216,12 @@ namespace stdexec {
             stdexec::set_stopped(__get_base((_Derived&&) __self));
           }
 
+          template <__custom_completion_channel _Tag, class _D = _Derived, class... As>
+            requires tag_invocable<_Tag, __base_t<_D>, As...>
+          friend void tag_invoke(_Tag tag, _Derived&& __self, As&&... as) noexcept {
+            tag(__get_base((_Derived&&) __self), (As&&)as...);
+          }
+
           // Pass through the get_env receiver query
           template <same_as<get_env_t> _GetEnv, class _D = _Derived>
           friend auto tag_invoke(_GetEnv, const _Derived& __self)
