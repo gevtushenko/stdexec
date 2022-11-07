@@ -2344,6 +2344,15 @@ namespace stdexec {
               )
             }
 
+          template <__custom_completion_channel _Tag,
+                    class... _As _NVCXX_CAPTURE_PACK(_As)>
+              requires __callable<_Tag, _Receiver, _As...>
+            friend void tag_invoke(_Tag __tag, __t&& __self, _As&&... __as) noexcept {
+              _NVCXX_EXPAND_PACK(_As, __as,
+                __tag((_Receiver&&) __self.__op_->__rcvr_, (_As&&) __as...);
+              )
+            }
+
           friend auto tag_invoke(get_env_t, const __t& __self)
             -> __call_result_t<get_env_t, const _Receiver&> {
             return get_env(__self.__op_->__rcvr_);
