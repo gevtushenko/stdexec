@@ -42,6 +42,7 @@ namespace coop {
     std::size_t thread_id_{};
     std::size_t num_threads_{};
     std::barrier<>* barrier_{};
+    void** pointers_{};
   };
 
   namespace schedule_from {
@@ -394,14 +395,16 @@ namespace coop {
   struct inline_context {
     std::size_t num_threads_{1};
     std::barrier<> barrier_;
+    std::unique_ptr<void*[]> pointers_;
 
     inline_context(std::size_t num_threads)
       : num_threads_(num_threads)
-      , barrier_(num_threads_) {
+      , barrier_(num_threads_)
+      , pointers_(new void*[num_threads_]) {
     }
 
     inline_scheduler get_scheduler(std::size_t thread_id) {
-      return {context_state{thread_id, num_threads_, &barrier_}};
+      return {context_state{thread_id, num_threads_, &barrier_, pointers_.get()}};
     }
   };
 }
