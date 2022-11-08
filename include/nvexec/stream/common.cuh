@@ -219,22 +219,14 @@ namespace nvexec {
 
     template <class BaseEnv>
       using make_stream_env_t = 
-        stdexec::__if_c<
-          std::is_base_of_v<stream_env_base, BaseEnv>,
-          BaseEnv,
-          stream_env<stdexec::__x<BaseEnv>>
-        >;
+        stream_env<stdexec::__x<BaseEnv>>;
 
     template <class BaseEnv>
       using make_terminal_stream_env_t = terminal_stream_env<stdexec::__x<BaseEnv>>;
 
     template <class BaseEnv>
       make_stream_env_t<BaseEnv> make_stream_env(BaseEnv base, cudaStream_t stream) noexcept {
-        if constexpr (std::is_base_of_v<stream_env_base, BaseEnv>) {
-          return make_stream_env_t<BaseEnv>{{stream}, base.base_env_};
-        } else {
-          return make_stream_env_t<BaseEnv>{{stream}, base};
-        }
+        return make_stream_env_t<BaseEnv>{{stream}, base};
       }
 
     template <class BaseEnv>
@@ -272,13 +264,13 @@ namespace nvexec {
                                       stdexec::set_error_t,
                                       stdexec::set_stopped_t> Tag,
                     class... As>
-            friend void tag_invoke(Tag tag, __t&& self, As&&... as) noexcept {
+            __device__ friend void tag_invoke(Tag tag, __t&& self, As&&... as) noexcept {
               self.variant_->template emplace<decayed_tuple<Tag, As...>>(Tag{}, std::move(as)...);
               self.producer_(self.task_);
             }
 
           template <stdexec::__decays_to<std::exception_ptr> E>
-            friend void tag_invoke(stdexec::set_error_t, __t&& self, E&& e) noexcept {
+            friend __device__ void tag_invoke(stdexec::set_error_t, __t&& self, E&& e) noexcept {
               // What is `exception_ptr` but death pending
               self.variant_->template emplace<decayed_tuple<stdexec::set_error_t, cudaError_t>>(stdexec::set_error, cudaErrorUnknown);
               self.producer_(self.task_);
@@ -312,12 +304,12 @@ namespace nvexec {
         std::pmr::memory_resource *pinned_resource_{};
         cudaError_t status_{cudaSuccess};
 
-        continuation_task_t(Receiver receiver, Variant* variant, cudaStream_t stream, std::pmr::memory_resource *pinned_resource) noexcept 
+        __host__ continuation_task_t(Receiver receiver, Variant* variant, cudaStream_t stream, std::pmr::memory_resource *pinned_resource) noexcept 
           : receiver_{receiver}
           , variant_{variant}
           , stream_{stream}
           , pinned_resource_(pinned_resource) {
-          this->execute_ = [](task_base_t* t) noexcept {
+          this->execute_ = [] __host__ (task_base_t* t) noexcept {
             continuation_task_t &self = *static_cast<continuation_task_t*>(t);
 
             visit([&self](auto&& tpl) noexcept {
@@ -327,7 +319,7 @@ namespace nvexec {
             }, std::move(*self.variant_));
           };
 
-          this->free_ = [](task_base_t* t) noexcept {
+          this->free_ = [] __host__ (task_base_t* t) noexcept {
             continuation_task_t &self = *static_cast<continuation_task_t*>(t);
             STDEXEC_DBG_ERR(cudaFreeAsync(self.atom_next_, self.stream_));
             STDEXEC_DBG_ERR(cudaStreamDestroy(self.stream_));
@@ -353,7 +345,6 @@ namespace nvexec {
         struct __t : stream_op_state_base {
           using __id = operation_state_base_;
           using env_t = make_stream_env_t<outer_env_t>;
-          static constexpr bool borrows_stream = std::is_base_of_v<stream_env_base, outer_env_t>;
 
           context_state_t context_state_;
           void *temp_storage_{nullptr};
@@ -368,6 +359,8 @@ namespace nvexec {
             : context_state_(context_state)
             , receiver_(receiver)
             , defer_stream_destruction_(defer_stream_destruction) {
+
+            constexpr bool borrows_stream = stdexec::tag_invocable<get_stream_t, const outer_env_t&>;
             if constexpr(!borrows_stream) {
               std::tie(own_stream_, status_) = create_stream_with_priority(context_state_.priority_);
             }
@@ -376,6 +369,7 @@ namespace nvexec {
           cudaStream_t get_stream() const {
             cudaStream_t stream{};
 
+            constexpr bool borrows_stream = stdexec::tag_invocable<get_stream_t, const outer_env_t&>;
             if constexpr(borrows_stream) {
               const outer_env_t& env = stdexec::get_env(receiver_);
               stream = ::nvexec::STDEXEC_STREAM_DETAIL_NS::get_stream(env);

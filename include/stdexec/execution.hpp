@@ -4124,13 +4124,13 @@ namespace stdexec {
           // If the work is successfully scheduled on the new execution
           // context and is ready to run, forward the completion signal in
           // the operation state
-          friend void tag_invoke(set_value_t, __t&& __self) noexcept {
+          friend __host__ void tag_invoke(set_value_t, __t&& __self) noexcept {
             __self.__op_state_->__complete();
           }
 
           template <__one_of<set_error_t, set_stopped_t> _Tag, class... _As>
             requires __callable<_Tag, _Receiver, _As...>
-          friend void tag_invoke(_Tag, __t&& __self, _As&&... __as) noexcept {
+          friend __host__ void tag_invoke(_Tag, __t&& __self, _As&&... __as) noexcept {
             _Tag{}((_Receiver&&) __self.__op_state_->__rcvr_, (_As&&) __as...);
           }
 
@@ -4176,7 +4176,7 @@ namespace stdexec {
 
           template <__one_of<set_value_t, set_error_t, set_stopped_t> _Tag, class... _Args>
             requires __callable<_Tag, _Receiver, _Args...>
-          friend void tag_invoke(_Tag __tag, __t&& __self, _Args&&... __args) noexcept {
+          friend __host__ void tag_invoke(_Tag __tag, __t&& __self, _Args&&... __args) noexcept {
             __try_call(
               (_Receiver&&) __self.__op_state_->__rcvr_,
               __fun_c<__complete_<_Tag, _Args...>>,
@@ -5187,7 +5187,7 @@ namespace stdexec {
             __state<_Sender>* __state_;
             stdexec::run_loop* __loop_;
             template <class _Error>
-            void __set_error(_Error __err) noexcept {
+            __host__ void __set_error(_Error __err) noexcept {
               if constexpr (__decays_to<_Error, std::exception_ptr>)
                 __state_->__data_.template emplace<2>((_Error&&) __err);
               else if constexpr (__decays_to<_Error, std::error_code>)
@@ -5198,17 +5198,17 @@ namespace stdexec {
             }
             template <class _Sender2 = _Sender, class... _As>
               requires constructible_from<__sync_wait_result_t<_Sender2>, _As...>
-            friend void tag_invoke(stdexec::set_value_t, __t&& __rcvr, _As&&... __as) noexcept try {
+            friend __host__ void tag_invoke(stdexec::set_value_t, __t&& __rcvr, _As&&... __as) noexcept try {
               __rcvr.__state_->__data_.template emplace<1>((_As&&) __as...);
               __rcvr.__loop_->finish();
             } catch(...) {
               __rcvr.__set_error(std::current_exception());
             }
             template <class _Error>
-            friend void tag_invoke(stdexec::set_error_t, __t&& __rcvr, _Error __err) noexcept {
+            friend __host__ void tag_invoke(stdexec::set_error_t, __t&& __rcvr, _Error __err) noexcept {
               __rcvr.__set_error((_Error &&) __err);
             }
-            friend void tag_invoke(stdexec::set_stopped_t __d, __t&& __rcvr) noexcept {
+            friend __host__ void tag_invoke(stdexec::set_stopped_t __d, __t&& __rcvr) noexcept {
               __rcvr.__state_->__data_.template emplace<3>(__d);
               __rcvr.__loop_->finish();
             }

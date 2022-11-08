@@ -125,8 +125,8 @@ namespace nvexec::STDEXEC_STREAM_DETAIL_NS {
 
     struct root_task_t : task_base_t {
       root_task_t() {
-        this->execute_ = [](task_base_t* t) noexcept {};
-        this->free_ = [](task_base_t* t) noexcept {
+        this->execute_ = [] __host__ (task_base_t* t) noexcept {};
+        this->free_ = [] __host__ (task_base_t* t) noexcept {
           STDEXEC_DBG_ERR(cudaFree(t->atom_next_));
         };
         this->next_ = nullptr;
@@ -142,8 +142,8 @@ namespace nvexec::STDEXEC_STREAM_DETAIL_NS {
       std::thread poller_;
       ::cuda::std::atomic_flag stopped_ = ATOMIC_FLAG_INIT;
 
-      poller_t(int dev_id, task_base_t* head) : head_(head) {
-        poller_ = std::thread([dev_id, this] {
+      __host__ poller_t(int dev_id, task_base_t* head) : head_(head) {
+        poller_ = std::thread([dev_id, this] __host__ () {
           cudaSetDevice(dev_id);
 
           task_base_t* current = head_;

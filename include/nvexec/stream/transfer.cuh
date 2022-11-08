@@ -40,11 +40,11 @@ namespace transfer {
                                       stdexec::set_error_t,
                                       stdexec::set_stopped_t> Tag,
                     class... As >
-          friend void tag_invoke(Tag tag, receiver_t&& self, As&&... as) noexcept {
+          friend __host__ void tag_invoke(Tag tag, receiver_t&& self, As&&... as) noexcept {
             Tag{}(std::move(self.op_state_.receiver_), (As&&)as...);
           }
 
-          friend Env
+          friend __host__ Env
           tag_invoke(stdexec::get_env_t, const receiver_t& self) {
             return self.operation_state_.make_env();
           }
