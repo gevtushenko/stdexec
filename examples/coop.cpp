@@ -563,9 +563,9 @@ int main() {
       auto sch = ctx.get_scheduler(thread_id);
       auto snd = stdexec::just()
                | exec::on(exec::inline_scheduler{},
-                          stdexec::then([]() -> int { 
-                            std::printf("inline::then sends 42\n"); 
-                            return 42;
+                          stdexec::then([thread_id]() -> int { 
+                            std::printf("inline::then sends %d\n", (int)thread_id); 
+                            return thread_id;
                           })
                         | stdexec::bulk(2, [](int id, int val) {
                             std::printf("inline::bulk(%d) forwards %d\n", id, val);
