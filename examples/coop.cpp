@@ -43,6 +43,17 @@ namespace coop {
     std::size_t num_threads_{};
     std::barrier<>* barrier_{};
     void** pointers_{};
+
+    void broadcast(void *ptr) noexcept {
+      for (std::size_t tid = 0; tid < num_threads_; tid++) {
+        pointers_[tid] = ptr;
+      }
+    }
+
+    template <class T>
+      T* ptr() noexcept {
+        return static_cast<T*>(pointers_[thread_id_]);
+      }
   };
 
   namespace schedule_from {
@@ -73,7 +84,7 @@ namespace coop {
           if (self.state_.thread_id_ == 0) {
             stdexec::set_value(std::move(self.receiver_), (As&&)as...);
           } else {
-            aux_channel(std::move(self.receiver_), (As&&)as...);
+            aux_channel(std::move(self.receiver_));
           }
         }
 
@@ -128,36 +139,90 @@ namespace coop {
     };
 
   namespace transfer {
-    template <class ReceiverId>
+    template <class Variant, class ReceiverId>
       struct receiver_t {
         using Receiver = stdexec::__t<ReceiverId>;
         using Env = stdexec::env_of_t<Receiver>;
 
         context_state state_;
         Receiver receiver_;
+        Variant *variant_{};
 
-        template <stdexec::__none_of<aux_channel_t, stdexec::set_value_t> Tag, class... As>
+        template <stdexec::__one_of<stdexec::set_value_t,
+                                    stdexec::set_error_t,
+                                    stdexec::set_stopped_t> Tag,
+                  class... As>
           friend void tag_invoke(Tag tag, receiver_t&& self, As&&... as) noexcept {
-            // tag(std::move(self.receiver_), (As&&)as...);
+            if (self.state_.thread_id_ == 0) {
+              using tuple_t = stdexec::__decayed_tuple<Tag, As...>;
+              self.variant_->template emplace<tuple_t>(tag, (As&&)as...);
+              self.state_.broadcast(self.variant_);
+            }
+            aux_channel(std::move(self));
           }
 
         template <class... As>
-            requires stdexec::tag_invocable<stdexec::set_value_t, Receiver&&>
-          friend void tag_invoke(stdexec::set_value_t, receiver_t&& self, As&&... as) noexcept {
+          friend void tag_invoke(aux_channel_t, receiver_t&& self) noexcept {
             self.state_.barrier_->arrive_and_wait();
-            stdexec::set_value(std::move(self.receiver_), (As&&)as...);
-          }
 
-        template <class... As>
-            requires stdexec::tag_invocable<stdexec::set_value_t, Receiver&&>
-          friend void tag_invoke(aux_channel_t, receiver_t&& self, As&&... as) noexcept {
-            self.state_.barrier_->arrive_and_wait();
-            stdexec::set_value(std::move(self.receiver_), (As&&)as...);
+            std::visit([&](const auto& tupl) noexcept -> void {
+              std::apply([&](auto tag, const auto&... args) noexcept -> void {
+                tag(std::move(self.receiver_), args...);
+              }, tupl);
+            }, *self.state_.template ptr<Variant>());
           }
 
         friend stdexec::env_of_t<stdexec::__t<ReceiverId>>
         tag_invoke(stdexec::get_env_t, const receiver_t& self) {
           return stdexec::get_env(self.receiver_);
+        }
+      };
+
+    template <class SenderId, class ReceiverId>
+      struct operation_state_t {
+        using Sender = stdexec::__t<SenderId>;
+        using Receiver = stdexec::__t<ReceiverId>;
+
+        template <class... _Ts>
+          using bind_tuples =
+            stdexec::__mbind_front_q<
+              stdexec::__variant,
+              std::tuple<stdexec::set_stopped_t>, // Initial state of the variant is set_stopped
+              std::tuple<stdexec::set_error_t, std::exception_ptr>,
+              _Ts...>;
+
+        using bound_values_t =
+          stdexec::__value_types_of_t<
+            Sender,
+            stdexec::env_of_t<Receiver>,
+            stdexec::__mbind_front_q<stdexec::__decayed_tuple, stdexec::set_value_t>,
+            stdexec::__q<bind_tuples>>;
+
+        using Variant =
+          stdexec::__error_types_of_t<
+            Sender,
+            stdexec::env_of_t<Receiver>,
+            stdexec::__transform<
+              stdexec::__mbind_front_q<stdexec::__decayed_tuple, stdexec::set_error_t>,
+              bound_values_t>>;
+
+        using receiver_th = receiver_t<Variant, ReceiverId>;
+
+        Variant variant_;
+        stdexec::connect_result_t<Sender, receiver_th> inner_op_;
+
+        friend void tag_invoke(stdexec::start_t, operation_state_t& op) noexcept {
+          stdexec::start(op.inner_op_);
+        }
+
+        operation_state_t(context_state state, Sender&& sender, Receiver&& receiver)
+          : inner_op_{
+              stdexec::connect(
+                (Sender&&)sender, 
+                receiver_th{
+                  state,
+                  (Receiver&&)receiver,
+                  &variant_})} {
         }
       };
   }
@@ -166,17 +231,23 @@ namespace coop {
     struct transfer_sender_t {
       using Sender = stdexec::__t<SenderId>;
 
+      template <class Self, class Receiver>
+        using op_state_th = 
+          transfer::operation_state_t<
+            stdexec::__id<stdexec::__member_t<Self, Sender>>, 
+            stdexec::__id<Receiver>>;
+
       context_state state_;
       Sender sndr_;
 
-      template <class Receiver>
-        using receiver_t = transfer::receiver_t<stdexec::__x<Receiver>>;
-
       template <stdexec::__decays_to<transfer_sender_t> Self, stdexec::receiver Receiver>
-          requires stdexec::sender_to<stdexec::__member_t<Self, Sender>, receiver_t<Receiver>>
+          requires stdexec::sender_to<stdexec::__member_t<Self, Sender>, typename op_state_th<Self, Receiver>::receiver_th>
         friend auto tag_invoke(stdexec::connect_t, Self&& self, Receiver&& rcvr)
-          -> stdexec::connect_result_t<stdexec::__member_t<Self, Sender>, receiver_t<Receiver>> {
-            return stdexec::connect(((Self&&)self).sndr_, receiver_t<Receiver>{self.state_, (Receiver&&)rcvr});
+          -> op_state_th<Self, Receiver> {
+            return op_state_th<Self, Receiver>(
+                self.state_, 
+                ((Self&&)self).sndr_, 
+                (Receiver&&)rcvr);
         }
 
       template <stdexec::__one_of<stdexec::set_value_t, stdexec::set_stopped_t, stdexec::set_error_t> _Tag>
@@ -192,10 +263,14 @@ namespace coop {
           return ((_Tag&&) __tag)(__self.sndr_, (_As&&) __as...);
         }
 
-      // TODO Replace cooperative set_value with stdexec one
       template <stdexec::__decays_to<transfer_sender_t> _Self, class _Env>
         friend auto tag_invoke(stdexec::get_completion_signatures_t, _Self&&, _Env) ->
-            stdexec::completion_signatures<stdexec::set_value_t()>;
+          stdexec::make_completion_signatures<
+            stdexec::__member_t<_Self, Sender>, 
+            _Env,
+            stdexec::completion_signatures<
+              stdexec::set_error_t(const std::exception_ptr&),
+              stdexec::set_stopped_t()>>;
 
       transfer_sender_t(context_state state, Sender sndr)
         : state_(state)
@@ -204,7 +279,7 @@ namespace coop {
     };
 
   namespace bulk {
-    template <class Shape, class Fun, class ReceiverId>
+    template <class Variant, class Shape, class Fun, class ReceiverId>
       struct receiver_t {
         using Receiver = stdexec::__t<ReceiverId>;
         using Env = stdexec::env_of_t<Receiver>;
@@ -213,6 +288,7 @@ namespace coop {
         Shape shape_;
         Fun fun_;
         Receiver receiver_;
+        Variant *variant_{};
 
         static std::pair<Shape, Shape>
         even_share(Shape n, std::uint32_t rank, std::uint32_t size) noexcept {
@@ -228,45 +304,101 @@ namespace coop {
           return std::make_pair(begin, end);
         }
 
-        template <stdexec::__one_of<stdexec::set_error_t,
+        template <stdexec::__one_of<stdexec::set_value_t,
+                                    stdexec::set_error_t,
                                     stdexec::set_stopped_t> Tag,
                   class... As>
-        friend void tag_invoke(Tag tag, receiver_t&& self, As&&... as) noexcept {
-          if (self.state_.thread_id_ == 0) {
-            tag(std::move(self.receiver_), (As&&)as...);
-          } else {
-            // TODO
-            // aux_channel(std::move(self.receiver_), (As&&)as...);
+          friend void tag_invoke(Tag tag, receiver_t&& self, As&&... as) noexcept {
+            if (self.state_.thread_id_ == 0) {
+              using tuple_t = stdexec::__decayed_tuple<Tag, As...>;
+              self.variant_->template emplace<tuple_t>(tag, (As&&)as...);
+              self.state_.broadcast(self.variant_);
+            }
+            aux_channel(std::move(self));
           }
-        }
 
         template <class... As>
-        friend void tag_invoke(stdexec::set_value_t, receiver_t&& self, As&&... as) noexcept {
-          // Meet other threds there
-          aux_channel(std::move(self), (As&)as...);
-        }
+          friend void tag_invoke(aux_channel_t, receiver_t&& self) noexcept {
+            self.state_.barrier_->arrive_and_wait();
 
-        template <class... As>
-        friend void tag_invoke(aux_channel_t, receiver_t&& self, As&&... as) noexcept {
-          self.state_.barrier_->arrive_and_wait();
+            std::visit([&](const auto& tupl) noexcept -> void {
+              std::apply([&](auto tag, const auto&... args) noexcept -> void {
+                if constexpr (std::is_same_v<std::decay_t<decltype(tag)>, stdexec::set_value_t>) {
+                  auto [begin, end] = 
+                    receiver_t::even_share(self.shape_, self.state_.thread_id_, self.state_.num_threads_);
 
-          auto [begin, end] = 
-            receiver_t::even_share(self.shape_, self.state_.thread_id_, self.state_.num_threads_);
+                  for (Shape i = begin; i < end; ++i) {
+                    self.fun_(i, args...);
+                  }
+                }
+              }, tupl);
+            }, *self.state_.template ptr<Variant>());
+            self.state_.barrier_->arrive_and_wait();
 
-          for (Shape i = begin; i < end; ++i) {
-            self.fun_(i, as...);
+            if (self.state_.thread_id_ == 0) {
+              std::visit([&](const auto& tupl) noexcept -> void {
+                std::apply([&](auto tag, const auto&... args) noexcept -> void {
+                  tag(std::move(self.receiver_), args...);
+                }, tupl);
+              }, *self.variant_);
+            } else {
+              aux_channel(std::move(self.receiver_));
+            }
           }
-
-          if (self.state_.thread_id_ == 0) {
-            stdexec::set_value(std::move(self.receiver_), (As&&)as...);
-          } else {
-            aux_channel(std::move(self.receiver_), (As&&)as...);
-          }
-        }
 
         friend stdexec::env_of_t<Receiver>
         tag_invoke(stdexec::get_env_t, const receiver_t& self) {
           return stdexec::get_env(self.receiver_);
+        }
+      };
+
+    template <class SenderId, class ReceiverId, class Shape, class Fun>
+      struct operation_state_t {
+        using Sender = stdexec::__t<SenderId>;
+        using Receiver = stdexec::__t<ReceiverId>;
+
+        template <class... _Ts>
+          using bind_tuples =
+            stdexec::__mbind_front_q<
+              stdexec::__variant,
+              std::tuple<stdexec::set_stopped_t>, // Initial state of the variant is set_stopped
+              std::tuple<stdexec::set_error_t, std::exception_ptr>,
+              _Ts...>;
+
+        using bound_values_t =
+          stdexec::__value_types_of_t<
+            Sender,
+            stdexec::env_of_t<Receiver>,
+            stdexec::__mbind_front_q<stdexec::__decayed_tuple, stdexec::set_value_t>,
+            stdexec::__q<bind_tuples>>;
+
+        using Variant =
+          stdexec::__error_types_of_t<
+            Sender,
+            stdexec::env_of_t<Receiver>,
+            stdexec::__transform<
+              stdexec::__mbind_front_q<stdexec::__decayed_tuple, stdexec::set_error_t>,
+              bound_values_t>>;
+
+        using receiver_th = receiver_t<Variant, Shape, Fun, ReceiverId>;
+
+        Variant variant_;
+        stdexec::connect_result_t<Sender, receiver_th> inner_op_;
+
+        friend void tag_invoke(stdexec::start_t, operation_state_t& op) noexcept {
+          stdexec::start(op.inner_op_);
+        }
+
+        operation_state_t(context_state state, Shape shape, Fun fun, Sender&& sender, Receiver&& receiver)
+          : inner_op_{
+              stdexec::connect(
+                (Sender&&)sender, 
+                receiver_th{
+                  state,
+                  shape,
+                  fun, 
+                  (Receiver&&)receiver,
+                  &variant_})} {
         }
       };
   }
@@ -275,25 +407,29 @@ namespace coop {
     struct bulk_sender_t {
       using Sender = stdexec::__t<SenderId>;
 
+      template <class Self, class Receiver>
+        using op_state_th = 
+          bulk::operation_state_t<
+            stdexec::__id<stdexec::__member_t<Self, Sender>>, 
+            stdexec::__id<Receiver>, 
+            Shape, 
+            Fun>;
+
       context_state state_;
       Sender sndr_;
       Shape shape_;
       Fun fun_;
 
-      template <class Receiver>
-        using receiver_t = bulk::receiver_t<Shape, Fun, stdexec::__id<std::decay_t<Receiver>>>;
-
       template <stdexec::__decays_to<bulk_sender_t> Self, stdexec::receiver Receiver>
           requires stdexec::sender_to<stdexec::__member_t<Self, Sender>, Receiver>
         friend auto tag_invoke(stdexec::connect_t, Self&& self, Receiver&& rcvr)
-          -> stdexec::connect_result_t<stdexec::__member_t<Self, Sender>, receiver_t<Receiver>> {
-            return stdexec::connect(
+          -> op_state_th<Self, Receiver> {
+            return op_state_th<Self, Receiver>(
+                self.state_, 
+                self.shape_,
+                self.fun_,
                 ((Self&&)self).sndr_, 
-                receiver_t<Receiver>{
-                  self.state_, 
-                  self.shape_,
-                  self.fun_,
-                  (Receiver&&)rcvr});
+                (Receiver&&)rcvr);
         }
 
       template <stdexec::tag_category<stdexec::forwarding_sender_query> _Tag, class... _As>
@@ -427,22 +563,25 @@ int main() {
       auto sch = ctx.get_scheduler(thread_id);
       auto snd = stdexec::just()
                | exec::on(exec::inline_scheduler{},
-                          stdexec::then([] { 
-                            std::printf("inline::then\n"); 
+                          stdexec::then([]() -> int { 
+                            std::printf("inline::then sends 42\n"); 
+                            return 42;
                           })
-                        | stdexec::bulk(2, [](int id) {
-                            std::printf("inline::bulk(%d)\n", id);
+                        | stdexec::bulk(2, [](int id, int val) {
+                            std::printf("inline::bulk(%d) forwards %d\n", id, val);
                           }))
                | exec::on(sch,
-                          stdexec::then([] { 
-                            std::printf("coop\n"); 
+                          stdexec::then([](int val) -> int { 
+                            std::printf("coop forwards %d\n", val); 
+                            return val;
                           })
-                        | stdexec::bulk(2, [](int id) {
-                            std::printf("coop::bulk(%d)\n", id);
-                          }))
+                        | stdexec::bulk(2, [](int id, int val) {
+                            std::printf("coop::bulk(%d) forwards %d\n", id, val);
+                          })
+                        )
                | exec::on(exec::inline_scheduler{},
-                          stdexec::then([] { 
-                            std::printf("inline\n"); 
+                          stdexec::then([] (int val) { 
+                            std::printf("inline receives %d\n", val); 
                           })
                         | stdexec::bulk(2, [](int id) {
                             std::printf("inline::bulk(%d)\n", id);
