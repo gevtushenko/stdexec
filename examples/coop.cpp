@@ -460,9 +460,16 @@ namespace coop {
     template <class R_>
       struct __op {
         using R = stdexec::__t<R_>;
-        [[no_unique_address]] R rec_;
+
+        context_state state_;
+        R rec_;
+
         friend void tag_invoke(stdexec::start_t, __op& op) noexcept {
-          aux_channel((R&&) op.rec_);
+          if (op.state_.thread_id_ == 0) {
+            stdexec::set_value(std::move(op.rec_));
+          } else {
+            aux_channel(std::move(op.rec_));
+          }
         }
       };
 
@@ -470,10 +477,10 @@ namespace coop {
       context_state state_;
 
       template <class R>
-        friend auto tag_invoke(stdexec::connect_t, __sender, R&& rec)
+        friend auto tag_invoke(stdexec::connect_t, __sender self, R&& rec)
           noexcept(std::is_nothrow_constructible_v<std::remove_cvref_t<R>, R>)
           -> __op<stdexec::__x<std::remove_cvref_t<R>>> {
-          return {(R&&) rec};
+          return {self.state_, (R&&) rec};
         }
 
       template <stdexec::__one_of<stdexec::set_value_t, stdexec::set_stopped_t, stdexec::set_error_t> _Tag>
@@ -561,6 +568,7 @@ int main() {
   for (std::size_t thread_id = 0; thread_id < num_threads; thread_id++) {
     threads[thread_id] = std::thread([thread_id, &ctx] {
       auto sch = ctx.get_scheduler(thread_id);
+
       auto snd = stdexec::just()
                | exec::on(exec::inline_scheduler{},
                           stdexec::then([thread_id]() -> int { 
