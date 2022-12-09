@@ -133,11 +133,7 @@ template <class SenderId, std::integral Shape, class Fun>
 
       template <stdexec::__decays_to<__t> Self, class Env>
       friend auto tag_invoke(stdexec::get_completion_signatures_t, Self&&, Env)
-        -> stdexec::dependent_completion_signatures<Env>;
-
-      template <stdexec::__decays_to<__t> Self, class Env>
-      friend auto tag_invoke(stdexec::get_completion_signatures_t, Self&&, Env)
-        -> completion_signatures<Self, Env> requires true;
+        -> completion_signatures<Self, Env>;
 
       template <stdexec::tag_category<stdexec::forwarding_sender_query> Tag, class... As>
         requires stdexec::__callable<Tag, const Sender&, As...>

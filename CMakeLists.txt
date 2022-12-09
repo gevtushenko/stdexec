@@ -102,6 +102,7 @@ target_include_directories(stdexec INTERFACE
 
 target_link_libraries(stdexec INTERFACE Threads::Threads)
 
+if (0)
 # Use C++20 standard
 target_compile_features(stdexec INTERFACE cxx_std_20)
 
@@ -109,6 +110,13 @@ target_compile_features(stdexec INTERFACE cxx_std_20)
 target_compile_options(stdexec INTERFACE
                        $<$<CXX_COMPILER_ID:GNU>:-fcoroutines>
                        )
+else()
+  target_compile_options(stdexec INTERFACE "-std=c++20")
+endif()
+
+set(compiler_name "")
+get_filename_component(compiler_name "${CMAKE_CXX_COMPILER}" NAME)
+message(${compiler_name})
 
 add_library(STDEXEC::stdexec ALIAS stdexec)
 
@@ -118,6 +126,7 @@ set(CMAKE_SKIP_INSTALL_ALL_DEPENDENCY ON)
 # Support target for examples and tests
 add_library(stdexec_executable_flags INTERFACE)
 
+if (0)
 # Enable warnings
 target_compile_options(stdexec_executable_flags INTERFACE
                        $<$<OR:$<CXX_COMPILER_ID:Clang>,$<CXX_COMPILER_ID:AppleClang>,$<CXX_COMPILER_ID:GNU>>:
@@ -152,6 +161,7 @@ target_compile_options(stdexec_executable_flags INTERFACE
                        -fcolor-diagnostics>
                        $<$<CXX_COMPILER_ID:GNU>:-fdiagnostics-color=always>
                        )
+endif()
 
 # Set up CUDASchedulers library
 option(STDEXEC_ENABLE_CUDA "Enable CUDA targets for non-nvc++ compilers" NO)
@@ -161,7 +171,8 @@ if (CMAKE_CXX_COMPILER_ID STREQUAL "NVHPC" OR STDEXEC_ENABLE_CUDA)
     add_library(CUDASchedulers INTERFACE ${SCHED_SOURCES})
     target_link_libraries(CUDASchedulers INTERFACE stdexec stdexec_executable_flags)
     target_include_directories(CUDASchedulers INTERFACE ${CMAKE_CURRENT_SOURCE_DIR})
-    target_compile_features(CUDASchedulers INTERFACE cxx_std_20)
+
+    target_compile_options(CUDASchedulers INTERFACE -x cu)
 
     if (CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
       target_compile_options(CUDASchedulers INTERFACE -x cu -Wno-unknown-cuda-version)
@@ -173,6 +184,10 @@ if (CMAKE_CXX_COMPILER_ID STREQUAL "NVHPC" OR STDEXEC_ENABLE_CUDA)
       target_link_options(CUDASchedulers INTERFACE -stdpar -gpu=nomanaged)
       foreach(arch IN LISTS CMAKE_CUDA_ARCHITECTURES)
         target_compile_options(CUDASchedulers INTERFACE -gpu=cc${arch})
+      endforeach()
+    else()
+      foreach(arch IN LISTS CMAKE_CUDA_ARCHITECTURES)
+        target_compile_options(CUDASchedulers INTERFACE -gencode arch=compute_${arch},code=sm_${arch} -diag-suppress 1301)
       endforeach()
     endif()
 endif()

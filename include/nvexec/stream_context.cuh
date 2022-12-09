@@ -20,20 +20,7 @@
 #include <memory_resource>
 
 #include "detail/config.cuh"
-#include "stream/sync_wait.cuh"
 #include "stream/bulk.cuh"
-#include "stream/let_xxx.cuh"
-#include "stream/schedule_from.cuh"
-#include "stream/start_detached.cuh"
-#include "stream/submit.cuh"
-#include "stream/split.cuh"
-#include "stream/then.cuh"
-#include "stream/transfer.cuh"
-#include "stream/upon_error.cuh"
-#include "stream/upon_stopped.cuh"
-#include "stream/when_all.cuh"
-#include "stream/reduce.cuh"
-#include "stream/ensure_started.cuh"
 
 #include "stream/common.cuh"
 #include "detail/queue.cuh"
@@ -44,51 +31,20 @@ namespace nvexec {
     template <stdexec::sender Sender, std::integral Shape, class Fun>
       using bulk_sender_th = stdexec::__t<bulk_sender_t<stdexec::__id<std::decay_t<Sender>>, Shape, Fun>>;
 
-    template <stdexec::sender Sender>
-      using split_sender_th = stdexec::__t<split_sender_t<stdexec::__id<std::decay_t<Sender>>>>;
-
-    template <stdexec::sender Sender, class Fun>
-      using then_sender_th = stdexec::__t<then_sender_t<stdexec::__id<std::decay_t<Sender>>, Fun>>;
-
-    template <class Scheduler, stdexec::sender... Senders>
-      using when_all_sender_th = stdexec::__t<when_all_sender_t<false, Scheduler, stdexec::__id<std::decay_t<Senders>>...>>;
-
-    template <class Scheduler, stdexec::sender... Senders>
-      using transfer_when_all_sender_th = stdexec::__t<when_all_sender_t<true, Scheduler, stdexec::__id<std::decay_t<Senders>>...>>;
-
-    template <stdexec::sender Sender, class Fun>
-      using upon_error_sender_th = stdexec::__t<upon_error_sender_t<stdexec::__id<std::decay_t<Sender>>, Fun>>;
-
-    template <stdexec::sender Sender, class Fun>
-      using upon_stopped_sender_th = stdexec::__t<upon_stopped_sender_t<stdexec::__id<std::decay_t<Sender>>, Fun>>;
-
-    template <class Set, stdexec::sender Sender, class Fun>
-      using let_xxx_th = stdexec::__t<let_sender_t<stdexec::__id<std::decay_t<Sender>>, Fun, stdexec::__x<Set>>>;
-
-    template <stdexec::sender Sender>
-      using transfer_sender_th = stdexec::__t<transfer_sender_t<stdexec::__id<std::decay_t<Sender>>>>;
-
-    template <stdexec::sender Sender>
-      using ensure_started_th = stdexec::__t<ensure_started_sender_t<stdexec::__id<Sender>>>;
-
     struct stream_scheduler {
       friend stream_context;
-
-      template <stdexec::sender Sender>
-        using schedule_from_sender_th = stdexec::__t<schedule_from_sender_t<stream_scheduler, stdexec::__id<std::decay_t<Sender>>>>;
 
       template <class ReceiverId>
         struct operation_state_ {
           using Receiver = stdexec::__t<ReceiverId>;
 
-          struct __t : operation_state_base_t<ReceiverId> {
+          struct __t {
             using __id = operation_state_;
 
             cudaStream_t stream_{0};
             cudaError_t status_{cudaSuccess};
 
-            __t(Receiver&& receiver, context_state_t context_state) 
-              : operation_state_base_t<ReceiverId>((Receiver&&)receiver, context_state, false) {
+            __t(Receiver&& receiver, context_state_t context_state) {
             }
 
             friend void tag_invoke(stdexec::start_t, __t& op) noexcept {
@@ -101,120 +57,46 @@ namespace nvexec {
         using operation_state_t = stdexec::__t<operation_state_<ReceiverId>>;
 
       struct sender_ {
-        struct __t : stream_sender_base {
-          using __id = sender_;
-          using completion_signatures =
-            stdexec::completion_signatures<
-              stdexec::set_value_t(),
-              stdexec::set_error_t(cudaError_t)>;
+        using __t = sender_;
+        using __id = sender_;
+        using completion_signatures_ =
+          stdexec::completion_signatures<
+            stdexec::set_value_t()>;
 
-          template <class R>
-            friend auto tag_invoke(stdexec::connect_t, const __t& self, R&& rec)
-              noexcept(std::is_nothrow_constructible_v<std::remove_cvref_t<R>, R>)
-              -> operation_state_t<stdexec::__id<std::remove_cvref_t<R>>> {
-              return operation_state_t<stdexec::__id<std::remove_cvref_t<R>>>((R&&) rec, self.context_state_);
-            }
+        template <class _Env>
+          friend auto tag_invoke(stdexec::get_completion_signatures_t, const sender_&, _Env)
+            -> completion_signatures_;
 
-          stream_scheduler make_scheduler() const {
-            return stream_scheduler{context_state_};
+        template <class R>
+          friend auto tag_invoke(stdexec::connect_t, const sender_& self, R&& rec)
+            noexcept(std::is_nothrow_constructible_v<std::remove_cvref_t<R>, R>)
+            -> operation_state_t<stdexec::__id<std::remove_cvref_t<R>>> {
+            return operation_state_t<stdexec::__id<std::remove_cvref_t<R>>>((R&&) rec, self.context_state_);
           }
 
-          template <class CPO>
-            friend stream_scheduler
-            tag_invoke(stdexec::get_completion_scheduler_t<CPO>, __t self) noexcept {
-              return self.make_scheduler();
-            }
+        stream_scheduler make_scheduler() const {
+          return stream_scheduler{context_state_};
+        }
 
-          __t(context_state_t context_state) noexcept
-            : context_state_(context_state) {
+        template <class CPO>
+          friend stream_scheduler
+          tag_invoke(stdexec::get_completion_scheduler_t<CPO>, sender_ self) noexcept {
+            return self.make_scheduler();
           }
 
-          context_state_t context_state_;
-        };
+        sender_(context_state_t context_state) noexcept
+          : context_state_(context_state) {
+        }
+
+        context_state_t context_state_;
       };
 
       using sender_t = stdexec::__t<sender_>;
-
-      template <stdexec::sender S>
-        friend schedule_from_sender_th<S>
-        tag_invoke(stdexec::schedule_from_t, const stream_scheduler& sch, S&& sndr) noexcept {
-          return schedule_from_sender_th<S>(sch.context_state_, (S&&) sndr);
-        }
 
       template <stdexec::sender S, std::integral Shape, class Fn>
         friend bulk_sender_th<S, Shape, Fn>
         tag_invoke(stdexec::bulk_t, const stream_scheduler& sch, S&& sndr, Shape shape, Fn fun) noexcept {
           return bulk_sender_th<S, Shape, Fn>{{}, (S&&) sndr, shape, (Fn&&)fun};
-        }
-
-      template <stdexec::sender S, class Fn>
-        friend then_sender_th<S, Fn>
-        tag_invoke(stdexec::then_t, const stream_scheduler& sch, S&& sndr, Fn fun) noexcept {
-          return then_sender_th<S, Fn>{{}, (S&&) sndr, (Fn&&)fun};
-        }
-
-      template <stdexec::sender S>
-        friend ensure_started_th<S>
-        tag_invoke(stdexec::ensure_started_t, const stream_scheduler& sch, S&& sndr) noexcept {
-          return ensure_started_th<S>(sch.context_state_, (S&&) sndr);
-        }
-
-      template <stdexec::sender S, class Fn>
-        friend let_xxx_th<stdexec::set_value_t, S, Fn>
-        tag_invoke(stdexec::let_value_t, const stream_scheduler& sch, S&& sndr, Fn fun) noexcept {
-          return let_xxx_th<stdexec::set_value_t, S, Fn>{{}, (S &&) sndr, (Fn &&) fun};
-        }
-
-      template <stdexec::sender S, class Fn>
-        friend let_xxx_th<stdexec::set_error_t, S, Fn>
-        tag_invoke(stdexec::let_error_t, const stream_scheduler& sch, S&& sndr, Fn fun) noexcept {
-          return let_xxx_th<stdexec::set_error_t, S, Fn>{{}, (S &&) sndr, (Fn &&) fun};
-        }
-
-      template <stdexec::sender S, class Fn>
-        friend let_xxx_th<stdexec::set_stopped_t, S, Fn>
-        tag_invoke(stdexec::let_stopped_t, const stream_scheduler& sch, S&& sndr, Fn fun) noexcept {
-          return let_xxx_th<stdexec::set_stopped_t, S, Fn>{{}, (S &&) sndr, (Fn &&) fun};
-        }
-
-      template <stdexec::sender S, class Fn>
-        friend upon_error_sender_th<S, Fn>
-        tag_invoke(stdexec::upon_error_t, const stream_scheduler& sch, S&& sndr, Fn fun) noexcept {
-          return upon_error_sender_th<S, Fn>{{}, (S&&) sndr, (Fn&&)fun};
-        }
-
-      template <stdexec::sender S, class Fn>
-        friend upon_stopped_sender_th<S, Fn>
-        tag_invoke(stdexec::upon_stopped_t, const stream_scheduler& sch, S&& sndr, Fn fun) noexcept {
-          return upon_stopped_sender_th<S, Fn>{{}, (S&&) sndr, (Fn&&)fun};
-        }
-
-      template <stdexec::sender... Senders>
-        friend auto
-        tag_invoke(stdexec::transfer_when_all_t, const stream_scheduler& sch, Senders&&... sndrs) noexcept {
-          return transfer_when_all_sender_th<stream_scheduler, Senders...>(sch.context_state_, (Senders&&)sndrs...);
-        }
-
-      template <stdexec::sender... Senders>
-        friend auto
-        tag_invoke(stdexec::transfer_when_all_with_variant_t, const stream_scheduler& sch, Senders&&... sndrs) noexcept {
-          return 
-            transfer_when_all_sender_th<stream_scheduler, stdexec::tag_invoke_result_t<stdexec::into_variant_t, Senders>...>(
-                sch.context_state_, 
-                stdexec::into_variant((Senders&&)sndrs)...);
-        }
-
-      template <stdexec::sender S, stdexec::scheduler Sch>
-        friend auto
-        tag_invoke(stdexec::transfer_t, const stream_scheduler& sch, S&& sndr, Sch&& scheduler) noexcept {
-          return stdexec::schedule_from((Sch&&)scheduler, transfer_sender_th<S>(
-            sch.context_state_, (S&&)sndr));
-        }
-
-      template <stdexec::sender S>
-        friend split_sender_th<S>
-        tag_invoke(stdexec::split_t, const stream_scheduler& sch, S&& sndr) noexcept {
-          return split_sender_th<S>(sch.context_state_, (S&&)sndr);
         }
 
       friend sender_t tag_invoke(stdexec::schedule_t, const stream_scheduler& self) noexcept {
@@ -224,12 +106,6 @@ namespace nvexec {
       friend std::true_type tag_invoke(stdexec::__has_algorithm_customizations_t, const stream_scheduler& self) noexcept {
         return {};
       }
-
-      template <stdexec::sender S>
-        friend auto
-        tag_invoke(stdexec::this_thread::sync_wait_t, const stream_scheduler& self, S&& sndr) {
-          return sync_wait::sync_wait_t{}(self.context_state_, (S&&)sndr);
-        }
 
       friend stdexec::forward_progress_guarantee tag_invoke(
           stdexec::get_forward_progress_guarantee_t,
@@ -248,39 +124,6 @@ namespace nvexec {
     // private: TODO
       context_state_t context_state_;
     };
-
-    template <stream_completing_sender Sender>
-      void tag_invoke(stdexec::start_detached_t, Sender&& sndr) noexcept(false) {
-        submit::submit_t{}((Sender&&)sndr, start_detached::detached_receiver_t{});
-      }
-
-    template <stream_completing_sender... Senders>
-      when_all_sender_th<stream_scheduler, Senders...>
-      tag_invoke(stdexec::when_all_t, Senders&&... sndrs) noexcept {
-        return when_all_sender_th<stream_scheduler, Senders...>{
-          context_state_t{nullptr, nullptr, nullptr}, (Senders&&)sndrs...};
-      }
-
-    template <stream_completing_sender... Senders>
-      when_all_sender_th<stream_scheduler, stdexec::tag_invoke_result_t<stdexec::into_variant_t, Senders>...>
-      tag_invoke(stdexec::when_all_with_variant_t, Senders&&... sndrs) noexcept {
-        return when_all_sender_th<stream_scheduler, stdexec::tag_invoke_result_t<stdexec::into_variant_t, Senders>...>{
-          context_state_t{nullptr, nullptr, nullptr}, 
-          stdexec::into_variant((Senders&&)sndrs)...
-        };
-      }
-
-    template <stdexec::sender S, class Fn>
-      upon_error_sender_th<S, Fn>
-      tag_invoke(stdexec::upon_error_t, S&& sndr, Fn fun) noexcept {
-        return upon_error_sender_th<S, Fn>{{}, (S&&) sndr, (Fn&&)fun};
-      }
-
-    template <stdexec::sender S, class Fn>
-      upon_stopped_sender_th<S, Fn>
-      tag_invoke(stdexec::upon_stopped_t, S&& sndr, Fn fun) noexcept {
-        return upon_stopped_sender_th<S, Fn>{{}, (S&&) sndr, (Fn&&)fun};
-      }
 
     struct pinned_resource : public std::pmr::memory_resource {
       void* do_allocate(size_t bytes, size_t /* alignment */) override {
