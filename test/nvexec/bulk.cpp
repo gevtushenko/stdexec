@@ -183,4 +183,21 @@ namespace {
 
     cudaFree(inout);
   }
+
+  TEST_CASE("nvexec bulk customization is found in on", "[cuda][stream][adaptors][bulk]") {
+    nvexec::stream_context ctx{};
+
+    flags_storage_t<1> flags_storage{};
+    auto flags = flags_storage.get();
+
+    auto task = stdexec::on(
+      ctx.get_scheduler(), stdexec::just() | stdexec::bulk(1, [flags](std::size_t idx) {
+                             if (is_on_gpu()) {
+                               flags.set(idx);
+                             }
+                           }));
+    stdexec::sync_wait(std::move(task));
+
+    REQUIRE(flags_storage.all_set_once());
+  }
 }
