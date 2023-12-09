@@ -75,6 +75,58 @@ namespace nvexec {
     template <sender Sender>
     using ensure_started_th = __t<ensure_started_sender_t<__id<Sender>>>;
 
+    template <class>
+    struct not_a_sender {
+      using sender_concept = stdexec::sender_t;
+    };
+
+    struct transform_bulk {
+      template <class Data, class Sender>
+      auto operator()(stdexec::bulk_t, Data&& data, Sender&& sndr) {
+        auto [shape, fun] = (Data&&) data;
+        return bulk_sender_th<Sender, decltype(shape), decltype(fun)>{
+          {}, (Sender&&) sndr, shape, std::move(fun)};
+      }
+    };
+
+    struct stream_domain {
+      template <stdexec::sender_expr_for<stdexec::bulk_t> Sender>
+      auto transform_sender(Sender&& sndr) const noexcept {
+        if constexpr (stdexec::__completes_on<Sender, stream_scheduler>) {
+          auto sched = stdexec::get_completion_scheduler<stdexec::set_value_t>(
+            stdexec::get_env(sndr));
+          return stdexec::__sexpr_apply((Sender&&) sndr, transform_bulk{});
+        } else {
+          static_assert(
+            stdexec::__completes_on<Sender, stream_scheduler>,
+            "No stream_scheduler instance can be found in the sender's environment "
+            "on which to schedule bulk work.");
+          return not_a_sender<stdexec::__name_of<Sender>>();
+        }
+        STDEXEC_UNREACHABLE();
+      }
+
+      template <stdexec::sender_expr_for<stdexec::bulk_t> Sender, class Env>
+      auto transform_sender(Sender&& sndr, const Env& env) const noexcept {
+        if constexpr (stdexec::__completes_on<Sender, stream_scheduler>) {
+          auto sched = stdexec::get_completion_scheduler<stdexec::set_value_t>(
+            stdexec::get_env(sndr));
+          return stdexec::__sexpr_apply((Sender&&) sndr, transform_bulk{});
+        } else if constexpr (stdexec::__starts_on<Sender, stream_scheduler, Env>) {
+          auto sched = stdexec::get_scheduler(env);
+          return stdexec::__sexpr_apply((Sender&&) sndr, transform_bulk{});
+        } else {
+          static_assert( //
+            stdexec::__starts_on<Sender, stream_scheduler, Env>
+              || stdexec::__completes_on<Sender, stream_scheduler>,
+            "No stream_scheduler instance can be found in the sender's or receiver's "
+            "environment on which to schedule bulk work.");
+          return not_a_sender<stdexec::__name_of<Sender>>();
+        }
+        STDEXEC_UNREACHABLE();
+      }
+    };
+
     struct stream_scheduler {
       using __t = stream_scheduler;
       using __id = stream_scheduler;
@@ -150,17 +202,14 @@ namespace nvexec {
 
       using sender_t = stdexec::__t<sender_>;
 
+      friend stream_domain tag_invoke(stdexec::get_domain_t, stream_scheduler) noexcept {
+        return {};
+      }
+
       template <sender S>
       friend schedule_from_sender_th<S>
         tag_invoke(schedule_from_t, const stream_scheduler& sch, S&& sndr) noexcept {
         return schedule_from_sender_th<S>(sch.context_state_, (S&&) sndr);
-      }
-
-      template <sender S, std::integral Shape, class Fn>
-      friend bulk_sender_th<S, Shape, Fn>
-        tag_invoke(bulk_t, const stream_scheduler& sch, S&& sndr, Shape shape, Fn fun) //
-        noexcept {
-        return bulk_sender_th<S, Shape, Fn>{{}, (S&&) sndr, shape, (Fn&&) fun};
       }
 
       template <sender S, class Fn>
