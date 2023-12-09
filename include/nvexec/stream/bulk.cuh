@@ -96,6 +96,7 @@ namespace nvexec::STDEXEC_STREAM_DETAIL_NS {
       Sender sndr_;
       Shape shape_;
       Fun fun_;
+      context_state_t context_state_;
 
       using _set_error_t = completion_signatures< set_error_t(cudaError_t)>;
 
@@ -117,13 +118,15 @@ namespace nvexec::STDEXEC_STREAM_DETAIL_NS {
         requires receiver_of< Receiver, _completion_signatures_t<Self, env_of_t<Receiver>>>
       friend auto tag_invoke(connect_t, Self&& self, Receiver rcvr)
         -> stream_op_state_t<__copy_cvref_t<Self, Sender>, receiver_t<Receiver>, Receiver> {
+        // TODO get stream from environment
         return stream_op_state<__copy_cvref_t<Self, Sender>>(
           ((Self&&) self).sndr_,
           (Receiver&&) rcvr,
           [&](operation_state_base_t<stdexec::__id<Receiver>>& stream_provider)
             -> receiver_t<Receiver> {
             return receiver_t<Receiver>(self.shape_, (Fun&&) self.fun_, stream_provider);
-          });
+          },
+          self.context_state_);
       }
 
       template <__decays_to<__t> Self, class Env>

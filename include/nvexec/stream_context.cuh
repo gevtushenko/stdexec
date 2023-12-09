@@ -81,11 +81,13 @@ namespace nvexec {
     };
 
     struct transform_bulk {
+      context_state_t context_state_;
+
       template <class Data, class Sender>
       auto operator()(stdexec::bulk_t, Data&& data, Sender&& sndr) {
         auto [shape, fun] = (Data&&) data;
         return bulk_sender_th<Sender, decltype(shape), decltype(fun)>{
-          {}, (Sender&&) sndr, shape, std::move(fun)};
+          {}, (Sender&&) sndr, shape, std::move(fun), context_state_};
       }
     };
 
@@ -95,7 +97,7 @@ namespace nvexec {
         if constexpr (stdexec::__completes_on<Sender, stream_scheduler>) {
           auto sched = stdexec::get_completion_scheduler<stdexec::set_value_t>(
             stdexec::get_env(sndr));
-          return stdexec::__sexpr_apply((Sender&&) sndr, transform_bulk{});
+          return stdexec::__sexpr_apply((Sender&&) sndr, transform_bulk{sched.context_state_});
         } else {
           static_assert(
             stdexec::__completes_on<Sender, stream_scheduler>,
@@ -111,10 +113,10 @@ namespace nvexec {
         if constexpr (stdexec::__completes_on<Sender, stream_scheduler>) {
           auto sched = stdexec::get_completion_scheduler<stdexec::set_value_t>(
             stdexec::get_env(sndr));
-          return stdexec::__sexpr_apply((Sender&&) sndr, transform_bulk{});
+          return stdexec::__sexpr_apply((Sender&&) sndr, transform_bulk{sched.context_state_});
         } else if constexpr (stdexec::__starts_on<Sender, stream_scheduler, Env>) {
           auto sched = stdexec::get_scheduler(env);
-          return stdexec::__sexpr_apply((Sender&&) sndr, transform_bulk{});
+          return stdexec::__sexpr_apply((Sender&&) sndr, transform_bulk{sched.context_state_});
         } else {
           static_assert( //
             stdexec::__starts_on<Sender, stream_scheduler, Env>
