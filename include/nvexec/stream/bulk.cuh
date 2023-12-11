@@ -98,6 +98,10 @@ namespace nvexec::STDEXEC_STREAM_DETAIL_NS {
       Fun fun_;
       context_state_t context_state_;
 
+      ~__t() {
+        std::printf("foo\n");
+      }
+
       using _set_error_t = completion_signatures< set_error_t(cudaError_t)>;
 
       template <class Receiver>
